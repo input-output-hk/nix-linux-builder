@@ -1,0 +1,24 @@
+---
+# nix-linux-builder — clang-tidy configuration
+# Targets project code only (vendored cJSON excluded via HeaderFilterRegex).
+
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  -bugprone-easily-swappable-parameters,
+  -misc-unused-parameters
+
+WarningsAsErrors: >
+  bugprone-signal-handler,
+  cert-sig30-c
+
+# Only check headers under src/ — excludes vendored src/cjson/.
+HeaderFilterRegex: 'src/(?!cjson/).*\.(h|m)$'
+
+CheckOptions:
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: 'TEST_ASSERT'

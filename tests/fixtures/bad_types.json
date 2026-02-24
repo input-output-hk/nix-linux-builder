@@ -1,0 +1,10 @@
+{
+  "version": "not_a_number",
+  "builder": 42,
+  "system": true,
+  "topTmpDir": null,
+  "tmpDir": "/ok",
+  "tmpDirInSandbox": "/ok",
+  "storeDir": "/ok",
+  "realStoreDir": "/ok"
+}

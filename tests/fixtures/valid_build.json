@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "builder": "/nix/store/abc123-bash/bin/bash",
+  "system": "aarch64-linux",
+  "topTmpDir": "/private/tmp/nix-build-test",
+  "tmpDir": "/private/tmp/nix-build-test/build",
+  "tmpDirInSandbox": "/build",
+  "storeDir": "/nix/store",
+  "realStoreDir": "/nix/store",
+  "args": ["-e", "/nix/store/abc123-builder.sh"],
+  "env": {
+    "HOME": "/homeless-shelter",
+    "NIX_BUILD_CORES": "8",
+    "out": "/nix/store/out123-hello"
+  },
+  "inputPaths": [
+    "/nix/store/abc123-bash",
+    "/nix/store/def456-stdenv"
+  ],
+  "outputs": {
+    "out": "/nix/store/out123-hello"
+  }
+}

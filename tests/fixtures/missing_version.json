@@ -1,0 +1,9 @@
+{
+  "builder": "/nix/store/abc123-bash/bin/bash",
+  "system": "aarch64-linux",
+  "topTmpDir": "/private/tmp/nix-build-test",
+  "tmpDir": "/private/tmp/nix-build-test/build",
+  "tmpDirInSandbox": "/build",
+  "storeDir": "/nix/store",
+  "realStoreDir": "/nix/store"
+}
