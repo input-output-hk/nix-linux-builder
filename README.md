@@ -42,6 +42,76 @@ nix develop -c make sign
 
 ### 2. Configure Nix
 
+#### nix-darwin (configuration.nix)
+
+```nix
+{ pkgs, ... }:
+
+let
+  nix-linux-builder = builtins.getFlake "github:input-output-hk/nix-linux-builder";
+  builder = nix-linux-builder.packages.aarch64-darwin.nix-linux-builder;
+  guest-kernel = nix-linux-builder.packages.aarch64-linux.guest-kernel;
+  guest-initrd = nix-linux-builder.packages.aarch64-linux.guest-initrd;
+in {
+  nix.settings = {
+    extra-experimental-features = [ "external-builders" ];
+    external-builders = builtins.toJSON [
+      {
+        systems = [ "aarch64-linux" "x86_64-linux" ];
+        program = "${builder}/bin/nix-linux-builder";
+        args = [
+          "--kernel" "${guest-kernel}/Image"
+          "--initrd" "${guest-initrd}/initrd"
+        ];
+      }
+    ];
+  };
+}
+```
+
+#### As a flake input (nix-darwin)
+
+```nix
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nix-darwin.url = "github:LnL7/nix-darwin";
+    nix-linux-builder.url = "github:input-output-hk/nix-linux-builder";
+  };
+
+  outputs = { nixpkgs, nix-darwin, nix-linux-builder, ... }: {
+    darwinConfigurations.my-mac = nix-darwin.lib.darwinSystem {
+      system = "aarch64-darwin";
+      modules = [
+        ({ ... }:
+          let
+            builder = nix-linux-builder.packages.aarch64-darwin.nix-linux-builder;
+            guest-kernel = nix-linux-builder.packages.aarch64-linux.guest-kernel;
+            guest-initrd = nix-linux-builder.packages.aarch64-linux.guest-initrd;
+          in {
+            nix.settings = {
+              extra-experimental-features = [ "external-builders" ];
+              external-builders = builtins.toJSON [
+                {
+                  systems = [ "aarch64-linux" "x86_64-linux" ];
+                  program = "${builder}/bin/nix-linux-builder";
+                  args = [
+                    "--kernel" "${guest-kernel}/Image"
+                    "--initrd" "${guest-initrd}/initrd"
+                  ];
+                }
+              ];
+            };
+          })
+      ];
+    };
+  };
+}
+```
+
+#### Manual (nix.conf)
+
 Add to `/etc/nix/nix.conf`:
 
 ```ini
