@@ -52,8 +52,8 @@
       prebuilt = {
         # Set to null before first release; the darwin module falls back
         # to building from source when hash is null.
-        guest-kernel.hash = null;
-        guest-initrd.hash = null;
+        guest-kernel.hash = "sha256-o5r4ZXilWUfoZscazEOCs2wtpLceWU4teaIRCQo3Ek4=";
+        guest-initrd.hash = "sha256-ZWrXThlCskT7HA51ublMRv35GYMPku1IBRJg/ul2euk=";
       };
 
       # Helper: fetch a prebuilt binary from a GitHub release and wrap it
