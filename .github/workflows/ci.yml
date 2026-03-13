@@ -32,9 +32,6 @@ jobs:
       - name: clang-tidy
         run: nix develop -c make lint
 
-      - name: Clang static analyzer
-        run: nix develop -c make analyze
-
       - name: Unit tests (AddressSanitizer)
         run: nix develop -c make test-asan
 

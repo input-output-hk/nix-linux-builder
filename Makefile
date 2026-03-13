@@ -133,10 +133,10 @@ lint: ## 🔍 Run clang-tidy on project sources
 	@clang-tidy $(LINT_SRCS) -- $(CFLAGS) -I$(SRCDIR) 2>&1 | tail -n +2
 	@printf "$(GREEN)$(BOLD)✓$(RESET) clang-tidy clean\n"
 
-analyze: clean ## 🔬 Run Clang static analyzer (scan-build)
-	@printf "$(YELLOW)→$(RESET) Running scan-build...\n"
-	scan-build --status-bugs make -B build
-	@printf "$(GREEN)$(BOLD)✓$(RESET) scan-build clean\n"
+analyze: clean ## 🔬 Run Clang static analyzer (analyze-build)
+	@printf "$(YELLOW)→$(RESET) Running analyze-build...\n"
+	analyze-build --status-bugs make -B build
+	@printf "$(GREEN)$(BOLD)✓$(RESET) analyze-build clean\n"
 
 # ─── CI ──────────────────────────────────────────────────────────────────────
 

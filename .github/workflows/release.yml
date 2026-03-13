@@ -1,22 +1,28 @@
 # nix-linux-builder — Release workflow
-# Builds guest kernel and initrd on aarch64-linux, publishes as GitHub Release.
-# Triggered by pushing a version tag (e.g., v0.1.0).
+# Builds guest kernel+initrd, updates prebuilt hashes in flake.nix,
+# commits, tags, and publishes a GitHub Release — all in one run.
+# This avoids the chicken-and-egg of tagging before hashes are known.
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 0.1.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  guest:
-    name: Build guest components
+  release:
+    name: Build and release v${{ inputs.version }}
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: cachix/install-nix-action@v31
 
@@ -30,14 +36,32 @@ jobs:
         run: |
           KERNEL_PATH=$(nix build -L .#packages.aarch64-linux.guest-kernel --no-link --print-out-paths)
           cp "$KERNEL_PATH/Image" ./guest-kernel-aarch64-linux
-          echo "hash=$(nix hash file --sri ./guest-kernel-aarch64-linux)" >> "$GITHUB_OUTPUT"
+          HASH=$(nix hash file --sri ./guest-kernel-aarch64-linux)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Guest kernel hash: $HASH"
 
       - name: Build guest initrd
         id: initrd
         run: |
           INITRD_PATH=$(nix build -L .#packages.aarch64-linux.guest-initrd --no-link --print-out-paths)
           cp "$INITRD_PATH/initrd" ./guest-initrd-aarch64-linux
-          echo "hash=$(nix hash file --sri ./guest-initrd-aarch64-linux)" >> "$GITHUB_OUTPUT"
+          HASH=$(nix hash file --sri ./guest-initrd-aarch64-linux)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Guest initrd hash: $HASH"
+
+      - name: Update prebuilt hashes in flake.nix
+        run: |
+          # Update version
+          sed -i 's|version = "[^"]*";|version = "${{ inputs.version }}";|' flake.nix
+
+          # Update kernel hash (replace null with the SRI hash string)
+          sed -i 's|guest-kernel.hash = .*|guest-kernel.hash = "${{ steps.kernel.outputs.hash }}";|' flake.nix
+
+          # Update initrd hash
+          sed -i 's|guest-initrd.hash = .*|guest-initrd.hash = "${{ steps.initrd.outputs.hash }}";|' flake.nix
+
+          echo "Updated flake.nix:"
+          grep -A2 'prebuilt = {' flake.nix
 
       - name: Write checksums
         run: |
@@ -46,12 +70,21 @@ jobs:
           ${{ steps.initrd.outputs.hash }}  guest-initrd-aarch64-linux
           EOF
 
-      - name: Create release
+      - name: Commit, tag, and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git commit -m "Release v${{ inputs.version }}: update prebuilt hashes"
+          git tag "v${{ inputs.version }}"
+          git push origin HEAD:master --tags
+
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
             --generate-notes \
             ./guest-kernel-aarch64-linux#"Guest kernel (aarch64-linux)" \
             ./guest-initrd-aarch64-linux#"Guest initrd (aarch64-linux)" \
