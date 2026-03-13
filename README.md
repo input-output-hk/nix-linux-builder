@@ -42,34 +42,9 @@ nix develop -c make sign
 
 ### 2. Configure Nix
 
-#### nix-darwin (configuration.nix)
+#### nix-darwin module (recommended)
 
-```nix
-{ pkgs, ... }:
-
-let
-  nix-linux-builder = builtins.getFlake "github:input-output-hk/nix-linux-builder";
-  builder = nix-linux-builder.packages.aarch64-darwin.nix-linux-builder;
-  guest-kernel = nix-linux-builder.packages.aarch64-linux.guest-kernel;
-  guest-initrd = nix-linux-builder.packages.aarch64-linux.guest-initrd;
-in {
-  nix.settings = {
-    extra-experimental-features = [ "external-builders" ];
-    external-builders = builtins.toJSON [
-      {
-        systems = [ "aarch64-linux" "x86_64-linux" ];
-        program = "${builder}/bin/nix-linux-builder";
-        args = [
-          "--kernel" "${guest-kernel}/Image"
-          "--initrd" "${guest-initrd}/initrd"
-        ];
-      }
-    ];
-  };
-}
-```
-
-#### As a flake input (nix-darwin)
+The flake provides a `darwinModules.default` that handles everything:
 
 ```nix
 # flake.nix
@@ -84,26 +59,19 @@ in {
     darwinConfigurations.my-mac = nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";
       modules = [
-        ({ ... }:
-          let
-            builder = nix-linux-builder.packages.aarch64-darwin.nix-linux-builder;
-            guest-kernel = nix-linux-builder.packages.aarch64-linux.guest-kernel;
-            guest-initrd = nix-linux-builder.packages.aarch64-linux.guest-initrd;
-          in {
-            nix.settings = {
-              extra-experimental-features = [ "external-builders" ];
-              external-builders = builtins.toJSON [
-                {
-                  systems = [ "aarch64-linux" "x86_64-linux" ];
-                  program = "${builder}/bin/nix-linux-builder";
-                  args = [
-                    "--kernel" "${guest-kernel}/Image"
-                    "--initrd" "${guest-initrd}/initrd"
-                  ];
-                }
-              ];
-            };
-          })
+        nix-linux-builder.darwinModules.default
+        {
+          services.nix-linux-builder.enable = true;
+
+          # Optional settings (showing defaults):
+          # services.nix-linux-builder.systems = [ "aarch64-linux" "x86_64-linux" ];
+          # services.nix-linux-builder.memorySize = null;  # 8 GiB default
+          # services.nix-linux-builder.cpuCount = null;    # host CPU count
+          # services.nix-linux-builder.timeout = 0;        # unlimited
+          # services.nix-linux-builder.network = false;
+          # services.nix-linux-builder.ramdiskTmp = false;
+          # services.nix-linux-builder.verbose = false;
+        }
       ];
     };
   };

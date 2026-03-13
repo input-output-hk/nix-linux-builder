@@ -109,6 +109,9 @@
         };
       };
 
+      # ── nix-darwin module ────────────────────────────────────────────────
+      darwinModules.default = import ./nix/darwin-module.nix { inherit self; };
+
       # ── Development shell (macOS) ───────────────────────────────────────
       # Minimal shell: just vendor cJSON and point to the system SDK.
       # We intentionally avoid pulling in nixpkgs Apple SDK frameworks.
