@@ -24,20 +24,19 @@ which defines the JSON-based protocol this builder implements.
 
 ### 1. Build
 
+The nix-darwin module (below) handles everything automatically, including
+fetching pre-built guest kernel and initrd from GitHub releases. No
+aarch64-linux builder needed for initial setup.
+
+To build from source instead:
+
 ```bash
 # Build the host binary (macOS)
 nix build .#nix-linux-builder
 
-# Build the guest kernel and initrd (Linux, cross-compiled)
+# Build the guest kernel and initrd (requires aarch64-linux builder)
 nix build .#packages.aarch64-linux.guest-kernel
 nix build .#packages.aarch64-linux.guest-initrd
-```
-
-Or from the development shell:
-
-```bash
-nix develop -c make build
-nix develop -c make sign
 ```
 
 ### 2. Configure Nix
@@ -64,6 +63,7 @@ The flake provides a `darwinModules.default` that handles everything:
           services.nix-linux-builder.enable = true;
 
           # Optional settings (showing defaults):
+          # services.nix-linux-builder.usePrebuilt = true;  # fetch from GitHub releases
           # services.nix-linux-builder.systems = [ "aarch64-linux" "x86_64-linux" ];
           # services.nix-linux-builder.memorySize = null;  # 8 GiB default
           # services.nix-linux-builder.cpuCount = null;    # host CPU count
@@ -104,6 +104,18 @@ nix build nixpkgs#legacyPackages.aarch64-linux.hello
 # Build a simple Linux package (x86_64-linux, via Rosetta)
 nix build nixpkgs#legacyPackages.x86_64-linux.hello
 ```
+
+## Bootstrapping (Pre-built Guest Components)
+
+The guest kernel and initrd are aarch64-linux derivations, but you need this
+builder to build aarch64-linux derivations -- a chicken-and-egg problem.
+
+The module solves this by default (`usePrebuilt = true`): it fetches pre-built
+kernel and initrd binaries from [GitHub Releases](https://github.com/input-output-hk/nix-linux-builder/releases)
+using `fetchurl` on macOS. No aarch64-linux builder is needed for initial setup.
+
+To build from source instead (e.g., if you already have a linux builder or want
+to verify reproducibility), set `services.nix-linux-builder.usePrebuilt = false`.
 
 ## How It Works
 

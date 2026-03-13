@@ -43,6 +43,32 @@
         sha256 = "sha256-h01n0xgVcOaaxrM4U/BEjwX8kNTPPkuqrcSpzt58UPM=";
       };
 
+      # ── Pre-built guest binaries from GitHub Releases ──────────────────
+      # These are fetched on macOS via darwinPkgs.fetchurl — no aarch64-linux
+      # builder needed. Solves the chicken-and-egg bootstrap problem.
+      # Update hashes after each release (see SHA256SUMS.txt in the release).
+      version = "0.1.0";
+      releaseUrl = "https://github.com/input-output-hk/nix-linux-builder/releases/download/v${version}";
+      prebuilt = {
+        # Set to null before first release; the darwin module falls back
+        # to building from source when hash is null.
+        guest-kernel.hash = null;
+        guest-initrd.hash = null;
+      };
+
+      # Helper: fetch a prebuilt binary from a GitHub release and wrap it
+      # in a derivation with the expected output layout ($out/<name>).
+      fetchPrebuilt = { name, outputName, hash }:
+        darwinPkgs.runCommand "nix-linux-builder-${name}-${version}" {
+          src = darwinPkgs.fetchurl {
+            url = "${releaseUrl}/${name}-aarch64-linux";
+            inherit hash;
+          };
+        } ''
+          mkdir -p $out
+          cp $src $out/${outputName}
+        '';
+
     in {
       # ── Host binary (macOS) ─────────────────────────────────────────────
       # Uses the system Xcode SDK because Virtualization.framework requires
@@ -96,7 +122,7 @@
         };
       };
 
-      # ── Guest components (Linux) ────────────────────────────────────────
+      # ── Guest components (build from source, requires aarch64-linux) ───
       packages.${linuxSystem} = {
         guest-kernel = import ./nix/kernel.nix {
           pkgs = linuxPkgs;
@@ -108,6 +134,26 @@
           guestInit = ./guest/init.sh;
         };
       };
+
+      # ── Pre-built guest components (fetched on macOS, no linux builder) ─
+      # These use darwinPkgs.fetchurl so macOS users can bootstrap without
+      # an existing aarch64-linux builder. Falls back to from-source when
+      # prebuilt hashes are null (before first release).
+      prebuiltGuest = let
+        hasPrebuilt = prebuilt.guest-kernel.hash != null
+                   && prebuilt.guest-initrd.hash != null;
+      in if hasPrebuilt then {
+        guest-kernel = fetchPrebuilt {
+          name = "guest-kernel";
+          outputName = "Image";
+          hash = prebuilt.guest-kernel.hash;
+        };
+        guest-initrd = fetchPrebuilt {
+          name = "guest-initrd";
+          outputName = "initrd";
+          hash = prebuilt.guest-initrd.hash;
+        };
+      } else null;
 
       # ── nix-darwin module ────────────────────────────────────────────────
       darwinModules.default = import ./nix/darwin-module.nix { inherit self; };

@@ -9,6 +9,7 @@
 #   inputs.nix-linux-builder.url = "github:input-output-hk/nix-linux-builder";
 #   # then in darwinConfigurations modules:
 #   nix-linux-builder.darwinModules.default
+#   { services.nix-linux-builder.enable = true; }
 #
 { self }:
 
@@ -18,8 +19,22 @@ let
   cfg = config.services.nix-linux-builder;
 
   builder = self.packages.aarch64-darwin.nix-linux-builder;
-  guest-kernel = self.packages.aarch64-linux.guest-kernel;
-  guest-initrd = self.packages.aarch64-linux.guest-initrd;
+
+  # Use prebuilt guest components (fetched on macOS, no linux builder needed)
+  # when available. Falls back to building from source (requires an existing
+  # aarch64-linux builder, e.g. a remote builder or previous bootstrap).
+  hasPrebuilt = self.prebuiltGuest != null;
+  usePrebuilt = cfg.usePrebuilt && hasPrebuilt;
+
+  guest-kernel =
+    if usePrebuilt
+    then self.prebuiltGuest.guest-kernel
+    else self.packages.aarch64-linux.guest-kernel;
+
+  guest-initrd =
+    if usePrebuilt
+    then self.prebuiltGuest.guest-initrd
+    else self.packages.aarch64-linux.guest-initrd;
 
   # Build the args list from module options.
   builderArgs = lib.concatLists [
@@ -38,6 +53,17 @@ let
 in {
   options.services.nix-linux-builder = {
     enable = lib.mkEnableOption "nix-linux-builder external builder for Linux derivations";
+
+    usePrebuilt = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Use pre-built guest kernel and initrd from GitHub releases.
+        This avoids the chicken-and-egg problem of needing an aarch64-linux
+        builder to build the guest components that provide the builder.
+        Set to false to build from source (requires an aarch64-linux builder).
+      '';
+    };
 
     systems = lib.mkOption {
       type = lib.types.listOf lib.types.str;

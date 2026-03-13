@@ -1,0 +1,58 @@
+# nix-linux-builder — Release workflow
+# Builds guest kernel and initrd on aarch64-linux, publishes as GitHub Release.
+# Triggered by pushing a version tag (e.g., v0.1.0).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  guest:
+    name: Build guest components
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-linux-arm64-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-linux-arm64-
+
+      - name: Build guest kernel
+        id: kernel
+        run: |
+          KERNEL_PATH=$(nix build -L .#packages.aarch64-linux.guest-kernel --no-link --print-out-paths)
+          cp "$KERNEL_PATH/Image" ./guest-kernel-aarch64-linux
+          echo "hash=$(nix hash file --sri ./guest-kernel-aarch64-linux)" >> "$GITHUB_OUTPUT"
+
+      - name: Build guest initrd
+        id: initrd
+        run: |
+          INITRD_PATH=$(nix build -L .#packages.aarch64-linux.guest-initrd --no-link --print-out-paths)
+          cp "$INITRD_PATH/initrd" ./guest-initrd-aarch64-linux
+          echo "hash=$(nix hash file --sri ./guest-initrd-aarch64-linux)" >> "$GITHUB_OUTPUT"
+
+      - name: Write checksums
+        run: |
+          cat > SHA256SUMS.txt <<EOF
+          ${{ steps.kernel.outputs.hash }}  guest-kernel-aarch64-linux
+          ${{ steps.initrd.outputs.hash }}  guest-initrd-aarch64-linux
+          EOF
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            ./guest-kernel-aarch64-linux#"Guest kernel (aarch64-linux)" \
+            ./guest-initrd-aarch64-linux#"Guest initrd (aarch64-linux)" \
+            ./SHA256SUMS.txt#"SHA256 checksums (SRI format)"
