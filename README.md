@@ -120,23 +120,23 @@ to verify reproducibility), set `services.nix-linux-builder.usePrebuilt = false`
 ## How It Works
 
 ```
-nix daemon                        nix-linux-builder (macOS)                Guest VM (Linux)
-    │                                     │                                      │
-    ├─ writes build.json ────────────────►│                                      │
-    ├─ exec's builder with path ─────────►│                                      │
-    │                                     ├─ parse build.json                    │
-    │                                     ├─ configure VM (VirtioFS, kernel)     │
+nix daemon                        nix-linux-builder (macOS)               Guest VM (Linux)
+    │                                     │                                     │
+    ├─ writes build.json ────────────────►│                                     │
+    ├─ exec's builder with path ─────────►│                                     │
+    │                                     ├─ parse build.json                   │
+    │                                     ├─ configure VM (VirtioFS, kernel)    │
     │                                     ├─ boot VM ──────────────────────────►│
     │                                     │                                     ├─ mount /nix/store (VirtioFS)
     │                                     │                                     ├─ mount /build (ext4 on VirtioFS)
     │                                     │                                     ├─ detect host UID from VirtioFS
     │                                     │                                     ├─ emit \2\n on hvc0 (ready)
-    │◄──── build logs on stdout ──────────┤◄──── hvc0 serial output ───────────┤
+    │◄──── build logs on stdout ──────────┤◄──── hvc0 serial output ────────────┤
     │                                     │                                     ├─ run builder as nixbld user
     │                                     │                                     ├─ write exit code to .exitcode
     │                                     │                                     ├─ poweroff
-    │                                     ├─ read .exitcode ◄──────────────────┤
-    │◄──── exit with builder's code ──────┤                                      │
+    │                                     ├─ read .exitcode ◄───────────────────┤
+    │◄──── exit with builder's code ──────┤                                     │
 ```
 
 ### VirtioFS Shares
@@ -298,4 +298,4 @@ CPIO archive containing statically-linked:
 
 Apache License 2.0 -- see [LICENSE](LICENSE).
 
-Copyright 2025 Moritz Angermann, Input Output Group.
+Copyright 2025, Input Output Group.
