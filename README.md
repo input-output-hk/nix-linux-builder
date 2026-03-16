@@ -105,6 +105,37 @@ nix build nixpkgs#legacyPackages.aarch64-linux.hello
 nix build nixpkgs#legacyPackages.x86_64-linux.hello
 ```
 
+## Interactive Debugging
+
+When a Linux build fails, `nix-linux-shell` lets you get into the build
+environment interactively — like `nix-shell` but inside the builder VM.
+
+```bash
+# Plain shell with /nix/store mounted
+nix-linux-shell
+
+# Shell with a derivation's build environment
+nix-linux-shell /nix/store/...-foo.drv
+
+# Debug: run the build, drop to shell on failure
+nix-linux-shell --debug /nix/store/...-foo.drv
+
+# From a flake ref (resolved to .drv automatically)
+nix-linux-shell nixpkgs#hello
+```
+
+The darwin module installs `nix-linux-shell` automatically. Inside the VM
+shell you can `source $stdenv/setup`, run `genericBuild`, or execute
+individual build phases to reproduce and diagnose failures.
+
+Three modes are available:
+
+| Mode | Command | Behavior |
+|---|---|---|
+| **Bare shell** | `nix-linux-shell` | Busybox shell with `/nix/store` mounted |
+| **Build env** | `nix-linux-shell <.drv>` | Derivation's environment loaded, interactive bash |
+| **Debug** | `nix-linux-shell --debug <.drv>` | Run build, drop to shell on failure |
+
 ## Bootstrapping (Pre-built Guest Components)
 
 The guest kernel and initrd are aarch64-linux derivations, but you need this
@@ -170,6 +201,7 @@ actual UID by `stat`-ing the VirtioFS-mounted build directory and patches
 
 ```
 nix-linux-builder [OPTIONS] <build.json>
+nix-linux-builder --shell [OPTIONS] [<build.json>]
 
 Required:
   --kernel <path>         Path to Linux ARM64 kernel Image
@@ -181,6 +213,8 @@ Optional:
   --timeout <seconds>     Build timeout, 0 = unlimited (default: 0)
   --network               Enable NAT networking in guest
   --ramdisk-tmp           Use tmpfs for /tmp (faster, limited by RAM)
+  --shell                 Interactive shell mode (build.json optional)
+  --debug                 Drop to shell on build failure (requires --shell and build.json)
   -v, --verbose           Enable verbose debug logging
   -h, --help              Show help message
 
@@ -252,6 +286,9 @@ src/
 
 guest/
   init.sh             Guest init script (busybox sh, PID 1)
+
+scripts/
+  nix-linux-shell     Interactive shell wrapper (installed by darwin module)
 
 nix/
   kernel.nix          Guest Linux kernel build (6.1.x, ARM64, minimal config)
