@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# nix-linux-shell — Interactive Linux build environment via nix-linux-builder
+# Copyright 2025 Moritz Angermann <moritz.angermann@iohk.io>, Input Output Group
+# Apache License 2.0
+#
+# Provides nix-shell-like debugging for Linux builds on macOS:
+#   nix-linux-shell                      → bare shell with /nix/store
+#   nix-linux-shell <.drv>               → build environment from derivation
+#   nix-linux-shell --debug <.drv>       → run build, drop to shell on failure
+#   nix-linux-shell <flake-ref>          → resolve flake ref to .drv, then shell
+#
+# Paths substituted by the darwin module at install time:
+KERNEL="@kernel@"
+INITRD="@initrd@"
+BUILDER="@builder@"
+
+set -euo pipefail
+
+usage() {
+    cat >&2 <<EOF
+Usage: nix-linux-shell [--debug] [<.drv path or flake ref>]
+
+Interactive Linux build environment via nix-linux-builder.
+
+Modes:
+  (no argument)          Bare shell with /nix/store mounted
+  <.drv>                 Shell with derivation's build environment
+  --debug <.drv>         Run the build, drop to shell on failure
+  <flake-ref>            Resolve to .drv first, then shell
+
+Options:
+  --debug                Enable debug mode (run build, shell on failure)
+  -h, --help             Show this help
+EOF
+    exit "${1:-1}"
+}
+
+DEBUG_FLAG=""
+DRV_ARG=""
+
+# Parse arguments
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)   usage 0 ;;
+        --debug)     DEBUG_FLAG="--debug"; shift ;;
+        -*)          echo "Unknown option: $1" >&2; usage 1 ;;
+        *)
+            if [ -n "$DRV_ARG" ]; then
+                echo "Unexpected extra argument: $1" >&2
+                usage 1
+            fi
+            DRV_ARG="$1"
+            shift
+            ;;
+    esac
+done
+
+# Validate substituted paths exist
+for var_name in KERNEL INITRD BUILDER; do
+    val="${!var_name}"
+    if [[ "$val" == @*@ ]]; then
+        echo "error: $var_name not substituted — is nix-linux-shell installed via the darwin module?" >&2
+        exit 1
+    fi
+    if [ ! -r "$val" ]; then
+        echo "error: $var_name path not found: $val" >&2
+        exit 1
+    fi
+done
+
+# ── Bare shell mode (no derivation) ─────────────────────────────────────
+if [ -z "$DRV_ARG" ]; then
+    exec sudo "$BUILDER" --shell --kernel "$KERNEL" --initrd "$INITRD" --network
+fi
+
+# ── Resolve flake ref to .drv if needed ──────────────────────────────────
+DRV_PATH="$DRV_ARG"
+if [[ "$DRV_PATH" != *.drv ]]; then
+    echo "Resolving flake ref to derivation..." >&2
+    DRV_PATH="$(nix path-info --derivation "$DRV_ARG" 2>/dev/null)" || {
+        echo "error: failed to resolve '$DRV_ARG' to a derivation" >&2
+        exit 1
+    }
+fi
+
+# Validate the .drv exists in the store
+if [ ! -r "$DRV_PATH" ]; then
+    echo "error: derivation not found: $DRV_PATH" >&2
+    exit 1
+fi
+
+# ── Build all dependencies ───────────────────────────────────────────────
+echo "Building derivation dependencies..." >&2
+nix build "${DRV_PATH}^*" --no-link 2>&1 | tail -1 || true
+
+# ── Synthesize build.json from the derivation ────────────────────────────
+TMPDIR_ROOT="$(mktemp -d /tmp/nix-linux-shell.XXXXXX)"
+trap 'rm -rf "$TMPDIR_ROOT"' EXIT
+
+# Create the build/ subdirectory (guest init expects it)
+mkdir -p "$TMPDIR_ROOT/build"
+
+# Get the structured derivation JSON
+DRV_JSON="$(nix derivation show "$DRV_PATH" 2>/dev/null)"
+
+# Resolve all input derivation outputs to their store paths.
+# inputDrvs is { "/nix/store/...drv": { "outputs": ["out"] } } —
+# we need the realized output paths.
+resolve_input_paths() {
+    local drv_json="$1"
+    local drv_path="$2"
+
+    # Collect inputSrcs (already store paths)
+    local input_srcs
+    input_srcs="$(echo "$drv_json" | jq -r --arg drv "$drv_path" \
+        '.[$drv].inputSrcs // [] | .[]')"
+
+    # Collect inputDrvs output paths
+    local input_drv_paths=""
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local dep_drv dep_outputs
+        dep_drv="$(echo "$line" | jq -r '.drv')"
+        dep_outputs="$(echo "$line" | jq -r '.outputs[]')"
+        while IFS= read -r out_name; do
+            [ -z "$out_name" ] && continue
+            local out_path
+            out_path="$(nix-store --query --outputs "$dep_drv" 2>/dev/null | head -1)" || true
+            if [ -n "$out_path" ]; then
+                input_drv_paths="$input_drv_paths"$'\n'"$out_path"
+            fi
+        done <<< "$dep_outputs"
+    done < <(echo "$drv_json" | jq -c --arg drv "$drv_path" \
+        '.[$drv].inputDrvs // {} | to_entries[] | {drv: .key, outputs: .value.outputs}')
+
+    # Combine and deduplicate
+    printf '%s\n%s' "$input_srcs" "$input_drv_paths" | sort -u | grep -v '^$' || true
+}
+
+INPUT_PATHS="$(resolve_input_paths "$DRV_JSON" "$DRV_PATH")"
+
+# Build the build.json using jq
+echo "$DRV_JSON" | jq --arg drv "$DRV_PATH" \
+    --arg topTmpDir "$TMPDIR_ROOT" \
+    --arg tmpDir "$TMPDIR_ROOT/build" \
+    --argjson inputPaths "$(echo "$INPUT_PATHS" | jq -R -s 'split("\n") | map(select(length > 0))')" \
+    '{
+        version: 1,
+        system: .[$drv].system,
+        builder: .[$drv].builder,
+        args: .[$drv].args,
+        env: (.[$drv].env // {}),
+        inputPaths: $inputPaths,
+        outputs: ((.[$drv].outputs // {}) | to_entries | map({(.key): .value.path}) | add // {}),
+        topTmpDir: $topTmpDir,
+        tmpDir: $tmpDir,
+        tmpDirInSandbox: "/build",
+        storeDir: "/nix/store",
+        realStoreDir: "/nix/store"
+    }' > "$TMPDIR_ROOT/build.json"
+
+echo "Build environment ready. Launching VM..." >&2
+
+# ── Launch the builder ───────────────────────────────────────────────────
+# shellcheck disable=SC2086
+exec sudo "$BUILDER" --shell $DEBUG_FLAG \
+    --kernel "$KERNEL" --initrd "$INITRD" --network \
+    "$TMPDIR_ROOT/build.json"
