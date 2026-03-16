@@ -173,6 +173,43 @@ if [ ! -r "$BUILD_JSON" ]; then
     exit 1
 fi
 
+# Detect shell/debug mode from kernel command line.
+# The host appends "shell" and/or "debug" to the cmdline when --shell/--debug
+# are passed. We check /mnt/root/proc because /proc is in the initramfs.
+SHELL_MODE=false
+DEBUG_MODE=false
+if busybox grep -q ' shell' /mnt/root/proc/cmdline 2>/dev/null; then
+    SHELL_MODE=true
+fi
+if busybox grep -q ' debug' /mnt/root/proc/cmdline 2>/dev/null; then
+    DEBUG_MODE=true
+fi
+
+# ── Bare shell mode ──────────────────────────────────────────────────────
+# --shell with no real derivation: just mount /nix/store and drop to sh.
+# We detect this by checking if the builder is /bin/sh (the synthetic
+# build.json created by the host for bare shell mode).
+if $SHELL_MODE && ! $DEBUG_MODE; then
+    bare_builder="$(jq -r .builder "$BUILD_JSON" 2>/dev/null)" || true
+    if [ "$bare_builder" = "/bin/sh" ]; then
+        busybox cat > /mnt/root/init <<'SHELLEOF'
+#!/bin/busybox env -i /bin/sh
+cleanup() { exec /bin/busybox poweroff -f; }
+trap cleanup EXIT
+/bin/busybox rm /init
+/bin/busybox ln -sf /proc/self/fd /dev/fd
+echo ""
+echo "nix-linux-builder: interactive shell (/nix/store mounted)"
+echo "Type 'exit' to shut down VM."
+echo ""
+exec /bin/busybox sh
+SHELLEOF
+        busybox chmod 500 /mnt/root/init
+        echo 0 > /mnt/root/proc/sys/kernel/printk
+        exec busybox switch_root /mnt/root /init
+    fi
+fi
+
 # Mount proc in initramfs context (for binfmt_misc below)
 busybox mkdir -p /proc
 busybox mount -t proc none /proc
@@ -209,10 +246,93 @@ jq -r '.env | to_entries[] | "\(.key)=\(.value | @sh)"' "$BUILD_JSON" > /mnt/roo
 busybox chmod 400 /mnt/root/execenv
 
 # ── Generate post-switch_root init ────────────────────────────────────────
-# This script runs as PID 1 after switch_root. It emits the \2\n signal
-# that tells nix to start reading build output, then runs the builder.
+# This script runs as PID 1 after switch_root. The behavior depends on mode:
+#   normal:            emit \2\n, run builder, write .exitcode, poweroff
+#   --shell <drv>:     source env, drop to interactive builder shell
+#   --shell --debug:   run builder, drop to shell on failure
 
-busybox cat > /mnt/root/init <<INITEOF
+if $SHELL_MODE && ! $DEBUG_MODE; then
+    # ── Shell with build environment (--shell <build.json>) ──────────
+    # Source the derivation's environment, then exec an interactive shell
+    # using the derivation's builder (typically bash). The user can then
+    # run 'source $stdenv/setup', 'genericBuild', or individual phases.
+    busybox cat > /mnt/root/init <<INITEOF
+#!/bin/busybox env -i /bin/sh
+set -eu
+
+cleanup() { exec /bin/busybox poweroff -f; }
+trap cleanup EXIT
+
+/bin/busybox rm /init
+/bin/busybox ln -sf /proc/self/fd /dev/fd
+
+cd /build
+
+# Source the environment variables extracted from build.json
+set -a
+. /execenv
+set +a
+/bin/busybox rm /execenv
+
+echo ""
+echo "nix-linux-builder: build environment ready"
+echo "  builder: $builder"
+echo "  Run 'source \\\$stdenv/setup' then 'genericBuild' or individual phases."
+echo "  Type 'exit' to shut down VM."
+echo ""
+
+# Exec the builder binary (bash) interactively as the nix build user.
+# No args = interactive shell (not -e builder.sh).
+exec /bin/busybox setuidgid nixbld $builder
+INITEOF
+elif $DEBUG_MODE; then
+    # ── Debug mode (--shell --debug <build.json>) ────────────────────
+    # Run the build normally. If it fails, drop to an interactive shell
+    # so the user can inspect state and diagnose the failure.
+    busybox cat > /mnt/root/init <<INITEOF
+#!/bin/busybox env -i /bin/sh
+set -eu
+
+cleanup() { exec /bin/busybox poweroff -f; }
+trap cleanup EXIT
+
+/bin/busybox rm /init
+/bin/busybox ln -sf /proc/self/fd /dev/fd
+
+cd /build
+
+# Source the environment variables extracted from build.json
+set -a
+. /execenv
+set +a
+/bin/busybox rm /execenv
+
+echo "nix-linux-builder: debug mode — running build..."
+
+# Run the builder. On failure, drop to interactive shell.
+set +e
+/bin/busybox setuidgid nixbld $builder $args_str < /dev/null
+rc=\$?
+set -e
+
+echo \$rc > /build-info/.exitcode
+
+if [ \$rc -eq 0 ]; then
+    echo ""
+    echo "Build SUCCEEDED (exit code 0)."
+else
+    echo ""
+    echo "Build FAILED (exit code \$rc). Dropping to debug shell."
+    echo "Build directory: /build"
+    echo "Type 'exit' to shut down VM."
+    echo ""
+    # Re-source env (builder may have modified it, but we want the original)
+    exec /bin/busybox setuidgid nixbld $builder
+fi
+INITEOF
+else
+    # ── Normal build mode ────────────────────────────────────────────
+    busybox cat > /mnt/root/init <<INITEOF
 #!/bin/busybox env -i /bin/sh
 set -eux
 
@@ -242,11 +362,12 @@ set +a
 # Run the actual builder as the nix build user.
 # The nixbld UID matches the host's build user (detected from VirtioFS).
 # stdin is /dev/null because nix builds are non-interactive.
-# Note: $builder is a nix store path (no shell metacharacters) — safe to use unquoted.
+# Note: \$builder is a nix store path (no shell metacharacters) — safe to use unquoted.
 set +e
 /bin/busybox setuidgid nixbld $builder $args_str < /dev/null
 echo \$? > /build-info/.exitcode
 INITEOF
+fi
 
 busybox chmod 500 /mnt/root/init
 
