@@ -18,6 +18,7 @@ nix build .#guest-initrd
 
 ```
 nix-linux-builder [OPTIONS] <build.json>
+nix-linux-builder --shell [OPTIONS] [<build.json>]
 
 Options:
   --kernel <path>         Path to Linux ARM64 kernel Image (required)
@@ -27,11 +28,42 @@ Options:
   --timeout <seconds>     Build timeout, 0 = none (default: 0)
   --network               Enable NAT networking in guest
   --ramdisk-tmp           Use tmpfs for /tmp instead of VirtioFS (faster, limited by RAM)
+  --shell                 Interactive shell mode (build.json optional)
+  --debug                 Drop to shell on build failure (requires --shell and build.json)
   -v, --verbose           Enable verbose logging
   -h, --help              Show help message
 
 Positional:
   <build.json>            Path to nix build specification JSON file
+```
+
+## Interactive Shell (nix-linux-shell)
+
+```bash
+# Plain shell with /nix/store mounted
+nix-linux-shell
+
+# Shell with a derivation's build environment
+nix-linux-shell /nix/store/...-foo.drv
+
+# Debug: run the build, drop to shell on failure
+nix-linux-shell --debug /nix/store/...-foo.drv
+
+# From a flake ref (resolved to .drv automatically)
+nix-linux-shell nixpkgs#hello
+```
+
+### Direct invocation (without wrapper)
+
+```bash
+# Bare shell (no build.json needed)
+sudo .build/nix-linux-builder --shell --kernel /path/to/Image --initrd /path/to/initrd --network
+
+# Shell with build environment
+sudo .build/nix-linux-builder --shell --kernel /path/to/Image --initrd /path/to/initrd --network build.json
+
+# Debug mode: run build, drop to shell on failure
+sudo .build/nix-linux-builder --shell --debug --kernel /path/to/Image --initrd /path/to/initrd --network build.json
 ```
 
 ## nix.conf Configuration

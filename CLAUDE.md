@@ -48,6 +48,18 @@ normally, while the underlying image file is host-disk-backed (no RAM limit).
 The user namespace approach (feature/user-namespace-sandbox) does NOT fix this
 because the host-side `mkdir()` still runs as the unprivileged nixbld user.
 
+## Interactive Shell / Debug Mode
+- `--shell` enables interactive mode: stdin is connected to guest hvc0, terminal is
+  set to raw mode. Three sub-modes:
+  - Bare shell (`--shell` alone): synthesizes minimal build.json, drops to busybox sh
+  - Build env shell (`--shell <build.json>`): loads derivation environment, drops to
+    the derivation's builder (typically bash) interactively
+  - Debug mode (`--shell --debug <build.json>`): runs the build normally, drops to
+    interactive shell on failure so user can inspect state
+- `scripts/nix-linux-shell` wrapper: resolves .drv paths or flake refs, builds deps,
+  synthesizes build.json, invokes `nix-linux-builder --shell`. Installed via darwin module.
+- Guest init detects shell/debug via kernel cmdline flags (appended by vm_config.m)
+
 ## Known Limitations
 - x86_64-linux GHC builds fail under Rosetta: patchelf creates sub-0x400000 LOAD
   segments in ET_EXEC (non-PIE) ghc-binary binaries that Rosetta can't map correctly.
