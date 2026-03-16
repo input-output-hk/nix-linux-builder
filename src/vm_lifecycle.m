@@ -38,6 +38,10 @@ static dispatch_source_t create_signal_source(int sig,
     signal(sig, SIG_IGN);
     dispatch_source_t src = dispatch_source_create(
         DISPATCH_SOURCE_TYPE_SIGNAL, (uintptr_t)sig, 0, queue);
+    if (!src) {
+        LOG_ERR("dispatch_source_create failed for signal %d", sig);
+        return NULL;
+    }
     dispatch_source_set_event_handler(src, ^{
         LOG_WARN("received signal %d, stopping VM...", sig);
         /* Set flag before signaling semaphore so the main thread sees it
@@ -192,8 +196,8 @@ int nlb_vm_run(VZVirtualMachineConfiguration *config,
          * dispatch_sync is safe here because dispatch_source_cancel does
          * not block waiting for a completion handler. */
         dispatch_sync(vmQueue, ^{
-            dispatch_source_cancel(sigterm_src);
-            dispatch_source_cancel(sigint_src);
+            if (sigterm_src) dispatch_source_cancel(sigterm_src);
+            if (sigint_src)  dispatch_source_cancel(sigint_src);
         });
 
         return exit_code;
