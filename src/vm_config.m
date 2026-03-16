@@ -37,6 +37,13 @@ static NSString *kernel_cmdline(const nlb_cli_opts *opts)
     if (opts->ramdisk_tmp)
         [cmdline appendString:@" ramdisk_tmp"];
 
+    /* Interactive shell mode flags — guest init reads these from /proc/cmdline
+     * to decide whether to drop to an interactive shell or run the builder. */
+    if (opts->shell)
+        [cmdline appendString:@" shell"];
+    if (opts->debug)
+        [cmdline appendString:@" debug"];
+
     return cmdline;
 }
 
@@ -88,13 +95,20 @@ VZVirtualMachineConfiguration *nlb_create_vm_config(
          * attachment. nix reads build logs from this fd, and the guest
          * emits the \2\n ready signal through it. */
         NSFileHandle *stdoutHandle = [NSFileHandle fileHandleWithStandardOutput];
-        /* Open /dev/null for the reading end — the guest doesn't need
-         * host→guest input, but VZFileHandleSerialPortAttachment requires
-         * a valid file descriptor (not the null device pseudo-handle). */
-        NSFileHandle *stdinHandle = [NSFileHandle fileHandleForReadingAtPath:@"/dev/null"];
-        if (!stdinHandle) {
-            LOG_ERR("failed to open /dev/null for reading");
-            return nil;
+        NSFileHandle *stdinHandle;
+        if (opts->shell) {
+            /* Interactive mode: connect host stdin → guest hvc0 so the
+             * user can type commands into the guest shell. */
+            stdinHandle = [NSFileHandle fileHandleWithStandardInput];
+        } else {
+            /* Build mode: open /dev/null for the reading end — the guest
+             * doesn't need host→guest input, but VZFileHandleSerialPortAttachment
+             * requires a valid file descriptor. */
+            stdinHandle = [NSFileHandle fileHandleForReadingAtPath:@"/dev/null"];
+            if (!stdinHandle) {
+                LOG_ERR("failed to open /dev/null for reading");
+                return nil;
+            }
         }
 
         VZFileHandleSerialPortAttachment *serialAttach =
