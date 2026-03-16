@@ -68,6 +68,14 @@ let
     (lib.optional cfg.ramdiskTmp [ "--ramdisk-tmp" ])
     (lib.optional cfg.verbose [ "--verbose" ])
   ];
+  # nix-linux-shell wrapper: substitutes kernel/initrd/builder paths
+  # so users can interactively debug Linux builds without knowing
+  # the store paths of guest components.
+  nixLinuxShell = pkgs.writeShellScriptBin "nix-linux-shell"
+    (builtins.replaceStrings
+      [ "@kernel@" "@initrd@" "@builder@" ]
+      [ "${guest-kernel}/Image" "${guest-initrd}/initrd" signedBin ]
+      (builtins.readFile ../scripts/nix-linux-shell));
 in {
   options.services.nix-linux-builder = {
     enable = lib.mkEnableOption "nix-linux-builder external builder for Linux derivations";
@@ -138,6 +146,9 @@ in {
         /usr/bin/codesign --sign - --entitlements ${entitlementsPlist} --force ${signedBin}
       fi
     '';
+
+    # Install nix-linux-shell wrapper for interactive debugging.
+    environment.systemPackages = [ nixLinuxShell ];
 
     nix.settings = {
       extra-experimental-features = [ "external-builders" ];
