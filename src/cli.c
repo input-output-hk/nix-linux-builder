@@ -37,6 +37,8 @@ static const struct option long_options[] = {
     { "timeout",      required_argument, NULL, 't' },
     { "network",      no_argument,       NULL, 'n' },
     { "ramdisk-tmp",  no_argument,       NULL, 'R' },
+    { "shell",        no_argument,       NULL, 's' },
+    { "debug",        no_argument,       NULL, 'd' },
     { "verbose",      no_argument,       NULL, 'v' },
     { "help",         no_argument,       NULL, 'h' },
     { NULL, 0, NULL, 0 }
@@ -46,6 +48,7 @@ void nlb_cli_usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [OPTIONS] <build.json>\n"
+        "       %s --shell [OPTIONS] [<build.json>]\n"
         "\n"
         "Boot a lightweight Linux VM to execute a nix build.\n"
         "\n"
@@ -57,9 +60,11 @@ void nlb_cli_usage(const char *prog)
         "  --timeout <seconds>     Build timeout, 0 = none (default: 0)\n"
         "  --network               Enable NAT networking in guest\n"
         "  --ramdisk-tmp           Use tmpfs for /tmp instead of VirtioFS (faster, limited by RAM)\n"
+        "  --shell                 Interactive shell mode (build.json optional)\n"
+        "  --debug                 Drop to shell on build failure (requires --shell and build.json)\n"
         "  -v, --verbose           Verbose logging to stderr\n"
         "  -h, --help              Show this help\n",
-        prog);
+        prog, prog);
 }
 
 int nlb_cli_parse(int argc, char *argv[], nlb_cli_opts *opts)
@@ -132,6 +137,12 @@ int nlb_cli_parse(int argc, char *argv[], nlb_cli_opts *opts)
         case 'R':
             opts->ramdisk_tmp = true;
             break;
+        case 's':
+            opts->shell = true;
+            break;
+        case 'd':
+            opts->debug = true;
+            break;
         case 'v':
             opts->verbose = true;
             break;
@@ -144,21 +155,38 @@ int nlb_cli_parse(int argc, char *argv[], nlb_cli_opts *opts)
         }
     }
 
-    /* The remaining positional argument is the build.json path */
-    if (optind >= argc) {
+    /* --debug requires --shell (can't debug interactively via nix daemon pipes) */
+    if (opts->debug && !opts->shell) {
+        LOG_ERR("--debug requires --shell");
+        return -1;
+    }
+
+    /* The remaining positional argument is the build.json path.
+     * In --shell mode (without --debug), build.json is optional:
+     *   --shell alone        → bare shell with /nix/store mounted
+     *   --shell <build.json> → shell with build environment loaded
+     *   --shell --debug <bj> → run build, drop to shell on failure */
+    if (optind < argc) {
+        if (optind + 1 < argc) {
+            LOG_ERR("unexpected extra argument: %s", argv[optind + 1]);
+            return -1;
+        }
+        opts->build_json_path = argv[optind];
+        if (!opts->build_json_path[0]) {
+            LOG_ERR("build.json path cannot be empty");
+            return -1;
+        }
+    } else if (!opts->shell) {
+        /* Normal (non-shell) mode: build.json is required */
         LOG_ERR("missing required positional argument: <build.json>");
         nlb_cli_usage(argv[0]);
         return -1;
-    }
-    if (optind + 1 < argc) {
-        LOG_ERR("unexpected extra argument: %s", argv[optind + 1]);
+    } else if (opts->debug) {
+        /* --shell --debug: need build.json for the build environment */
+        LOG_ERR("--shell --debug requires a <build.json> argument");
         return -1;
     }
-    opts->build_json_path = argv[optind];
-    if (!opts->build_json_path[0]) {
-        LOG_ERR("build.json path cannot be empty");
-        return -1;
-    }
+    /* else: --shell without build.json → bare shell (build_json_path stays NULL) */
 
     /* Validate required options */
     if (!opts->kernel_path || !opts->kernel_path[0]) {

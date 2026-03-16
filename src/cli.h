@@ -21,6 +21,8 @@ typedef struct {
     bool        network;          /* --network flag */
     bool        ramdisk_tmp;      /* --ramdisk-tmp flag */
     bool        verbose;          /* -v / --verbose */
+    bool        shell;            /* --shell: interactive shell mode */
+    bool        debug;            /* --debug: drop to shell on build failure (requires --shell) */
 } nlb_cli_opts;
 
 /*
