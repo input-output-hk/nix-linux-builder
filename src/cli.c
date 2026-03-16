@@ -161,6 +161,14 @@ int nlb_cli_parse(int argc, char *argv[], nlb_cli_opts *opts)
         return -1;
     }
 
+    /* --shell disables timeout: an interactive session has no meaningful
+     * deadline. Warn if the user explicitly set one. */
+    if (opts->shell && opts->timeout_secs > 0) {
+        LOG_WARN("--shell mode: ignoring --timeout %u (interactive sessions have no timeout)",
+                 opts->timeout_secs);
+        opts->timeout_secs = 0;
+    }
+
     /* The remaining positional argument is the build.json path.
      * In --shell mode (without --debug), build.json is optional:
      *   --shell alone        → bare shell with /nix/store mounted

@@ -14,7 +14,7 @@
 typedef struct {
     const char *kernel_path;      /* --kernel <path> (required) */
     const char *initrd_path;      /* --initrd <path> (required) */
-    const char *build_json_path;  /* positional argument (required) */
+    const char *build_json_path;  /* positional argument (NULL in bare --shell mode) */
     uint64_t    memory_size;      /* --memory-size <bytes> (default 8GiB) */
     uint32_t    cpu_count;        /* --cpu-count <n> (default host count) */
     uint32_t    timeout_secs;     /* --timeout <seconds> (0 = no timeout) */

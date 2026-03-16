@@ -70,6 +70,10 @@ done
 
 # ── Bare shell mode (no derivation) ─────────────────────────────────────
 if [ -z "$DRV_ARG" ]; then
+    if [ -n "$DEBUG_FLAG" ]; then
+        echo "error: --debug requires a derivation argument" >&2
+        usage 1
+    fi
     exec sudo "$BUILDER" --shell --kernel "$KERNEL" --initrd "$INITRD" --network
 fi
 
@@ -100,58 +104,72 @@ trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 # Create the build/ subdirectory (guest init expects it)
 mkdir -p "$TMPDIR_ROOT/build"
 
-# Get the structured derivation JSON
+# Get the structured derivation JSON (nix 2.34+ format).
+# Format: { "derivations": { "<short-hash>.drv": { ... } }, "version": 4 }
+# Keys in .derivations are basenames (no /nix/store/ prefix).
 DRV_JSON="$(nix derivation show "$DRV_PATH" 2>/dev/null)"
 
-# Resolve all input derivation outputs to their store paths.
-# inputDrvs is { "/nix/store/...drv": { "outputs": ["out"] } } —
-# we need the realized output paths.
+# Extract the derivation key (basename of the .drv path).
+DRV_KEY="$(basename "$DRV_PATH")"
+
+# Resolve all input derivation outputs to their full store paths.
+# nix 2.34 format:
+#   inputs.drvs: { "<short-hash>.drv": { "outputs": ["out", ...] } }
+#   inputs.srcs: ["<short-hash>-name", ...]
+# All names need /nix/store/ prepended to become full paths.
 resolve_input_paths() {
     local drv_json="$1"
-    local drv_path="$2"
+    local drv_key="$2"
 
-    # Collect inputSrcs (already store paths)
+    # Collect inputs.srcs — these are already realized store objects,
+    # just need /nix/store/ prefix added.
     local input_srcs
-    input_srcs="$(echo "$drv_json" | jq -r --arg drv "$drv_path" \
-        '.[$drv].inputSrcs // [] | .[]')"
+    input_srcs="$(echo "$drv_json" | jq -r --arg key "$drv_key" \
+        '.derivations[$key].inputs.srcs // [] | .[] | "/nix/store/" + .')"
 
-    # Collect inputDrvs output paths
+    # Collect inputs.drvs — for each input drv, query its realized
+    # output paths. We include all outputs (not just the specifically
+    # requested ones) because nix-store --query --outputs is fast and
+    # local, whereas per-output nix derivation show would be very slow
+    # for derivations with many inputs. Extra paths are harmless since
+    # /nix/store is fully mounted in the guest.
     local input_drv_paths=""
-    while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        local dep_drv dep_outputs
-        dep_drv="$(echo "$line" | jq -r '.drv')"
-        dep_outputs="$(echo "$line" | jq -r '.outputs[]')"
-        while IFS= read -r out_name; do
-            [ -z "$out_name" ] && continue
-            local out_path
-            out_path="$(nix-store --query --outputs "$dep_drv" 2>/dev/null | head -1)" || true
-            if [ -n "$out_path" ]; then
-                input_drv_paths="$input_drv_paths"$'\n'"$out_path"
-            fi
-        done <<< "$dep_outputs"
-    done < <(echo "$drv_json" | jq -c --arg drv "$drv_path" \
-        '.[$drv].inputDrvs // {} | to_entries[] | {drv: .key, outputs: .value.outputs}')
+    while IFS= read -r dep_drv_name; do
+        [ -z "$dep_drv_name" ] && continue
+        local dep_drv_full="/nix/store/$dep_drv_name"
+        local out_paths
+        out_paths="$(nix-store --query --outputs "$dep_drv_full" 2>/dev/null)" || true
+        if [ -n "$out_paths" ]; then
+            input_drv_paths="$input_drv_paths"$'\n'"$out_paths"
+        fi
+    done < <(echo "$drv_json" | jq -r --arg key "$drv_key" \
+        '.derivations[$key].inputs.drvs // {} | keys[]')
 
     # Combine and deduplicate
     printf '%s\n%s' "$input_srcs" "$input_drv_paths" | sort -u | grep -v '^$' || true
 }
 
-INPUT_PATHS="$(resolve_input_paths "$DRV_JSON" "$DRV_PATH")"
+INPUT_PATHS="$(resolve_input_paths "$DRV_JSON" "$DRV_KEY")"
 
-# Build the build.json using jq
-echo "$DRV_JSON" | jq --arg drv "$DRV_PATH" \
+# Build the build.json using jq.
+# nix 2.34 output paths are short hashes — prepend /nix/store/.
+echo "$DRV_JSON" | jq --arg key "$DRV_KEY" \
     --arg topTmpDir "$TMPDIR_ROOT" \
     --arg tmpDir "$TMPDIR_ROOT/build" \
     --argjson inputPaths "$(echo "$INPUT_PATHS" | jq -R -s 'split("\n") | map(select(length > 0))')" \
     '{
         version: 1,
-        system: .[$drv].system,
-        builder: .[$drv].builder,
-        args: .[$drv].args,
-        env: (.[$drv].env // {}),
+        system: .derivations[$key].system,
+        builder: .derivations[$key].builder,
+        args: .derivations[$key].args,
+        env: (.derivations[$key].env // {}),
         inputPaths: $inputPaths,
-        outputs: ((.[$drv].outputs // {}) | to_entries | map({(.key): .value.path}) | add // {}),
+        outputs: (
+            (.derivations[$key].outputs // {})
+            | to_entries
+            | map({(.key): ("/nix/store/" + .value.path)})
+            | add // {}
+        ),
         topTmpDir: $topTmpDir,
         tmpDir: $tmpDir,
         tmpDirInSandbox: "/build",

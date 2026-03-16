@@ -380,6 +380,89 @@ static void test_timeout_overflow(void)
     TEST_ASSERT_EQUAL_INT(-1, rc);
 }
 
+/* ── Shell mode ──────────────────────────────────────────────────────── */
+
+static void test_shell_bare(void)
+{
+    /* --shell without build.json: valid (bare shell mode) */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i", "--shell" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(6, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(opts.shell);
+    TEST_ASSERT_FALSE(opts.debug);
+    TEST_ASSERT_NULL(opts.build_json_path);
+}
+
+static void test_shell_with_build_json(void)
+{
+    /* --shell with build.json: valid (shell with build environment) */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--shell", "build.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(7, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(opts.shell);
+    TEST_ASSERT_FALSE(opts.debug);
+    TEST_ASSERT_EQUAL_STRING("build.json", opts.build_json_path);
+}
+
+static void test_shell_debug_with_build_json(void)
+{
+    /* --shell --debug with build.json: valid (debug mode) */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--shell", "--debug", "build.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(8, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(opts.shell);
+    TEST_ASSERT_TRUE(opts.debug);
+    TEST_ASSERT_EQUAL_STRING("build.json", opts.build_json_path);
+}
+
+static void test_debug_without_shell(void)
+{
+    /* --debug without --shell: error (can't debug via nix daemon pipes) */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--debug", "build.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(7, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(-1, rc);
+}
+
+static void test_shell_debug_without_build_json(void)
+{
+    /* --shell --debug without build.json: error (debug needs build env) */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--shell", "--debug" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(7, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(-1, rc);
+}
+
+static void test_shell_timeout_ignored(void)
+{
+    /* --shell with --timeout: timeout is silently overridden to 0 */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--shell", "--timeout", "300", "build.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(9, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(opts.shell);
+    TEST_ASSERT_EQUAL_UINT32(0, opts.timeout_secs);
+}
+
+static void test_shell_default_false(void)
+{
+    /* Normal mode: shell and debug default to false */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i", "b.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(6, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_FALSE(opts.shell);
+    TEST_ASSERT_FALSE(opts.debug);
+}
+
 /* ── Missing option value ────────────────────────────────────────────── */
 
 static void test_kernel_missing_value(void)
@@ -479,6 +562,15 @@ int main(void)
     RUN_TEST(test_cpu_count_overflow);
     RUN_TEST(test_timeout_max_uint32);
     RUN_TEST(test_timeout_overflow);
+
+    /* Shell mode */
+    RUN_TEST(test_shell_bare);
+    RUN_TEST(test_shell_with_build_json);
+    RUN_TEST(test_shell_debug_with_build_json);
+    RUN_TEST(test_debug_without_shell);
+    RUN_TEST(test_shell_debug_without_build_json);
+    RUN_TEST(test_shell_timeout_ignored);
+    RUN_TEST(test_shell_default_false);
 
     /* Missing option value */
     RUN_TEST(test_kernel_missing_value);

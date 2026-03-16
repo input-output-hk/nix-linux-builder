@@ -38,11 +38,13 @@ static NSString *kernel_cmdline(const nlb_cli_opts *opts)
         [cmdline appendString:@" ramdisk_tmp"];
 
     /* Interactive shell mode flags — guest init reads these from /proc/cmdline
-     * to decide whether to drop to an interactive shell or run the builder. */
+     * to decide whether to drop to an interactive shell or run the builder.
+     * Namespaced with "nlb." to avoid conflicts with real kernel parameters
+     * (e.g., the kernel's "debug" early_param sets console_loglevel=10). */
     if (opts->shell)
-        [cmdline appendString:@" shell"];
+        [cmdline appendString:@" nlb.shell"];
     if (opts->debug)
-        [cmdline appendString:@" debug"];
+        [cmdline appendString:@" nlb.debug"];
 
     return cmdline;
 }

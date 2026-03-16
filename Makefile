@@ -237,22 +237,23 @@ $(UNITY_OBJ): $(TESTDIR)/unity/unity.c
 	$(CC) $(UNITY_CFLAGS) -I$(TESTDIR) -c -o $@ $<
 
 # Test: CLI parsing
+# filter: -MMD -MP dependency files add .h prereqs; exclude them from $^
 $(BUILDDIR)/test_cli: $(TESTDIR)/test_cli.c $(BUILDDIR)/cli.o $(UNITY_OBJ)
 	@mkdir -p $(dir $@)
 	@printf "$(CYAN)→$(RESET) Building test_cli\n"
-	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $^
+	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $(filter %.c %.o,$^)
 
 # Test: build.json parsing
 $(BUILDDIR)/test_build_json: $(TESTDIR)/test_build_json.c $(BUILDDIR)/build_json.o $(BUILDDIR)/cjson/cJSON.o $(UNITY_OBJ)
 	@mkdir -p $(dir $@)
 	@printf "$(CYAN)→$(RESET) Building test_build_json\n"
-	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $^
+	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $(filter %.c %.o,$^)
 
 # Test: exit code reading
 $(BUILDDIR)/test_exitcode: $(TESTDIR)/test_exitcode.c $(BUILDDIR)/exitcode.o $(UNITY_OBJ)
 	@mkdir -p $(dir $@)
 	@printf "$(CYAN)→$(RESET) Building test_exitcode\n"
-	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $^
+	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $(filter %.c %.o,$^)
 
 # ─── Auto-generated Header Dependencies ──────────────────────────────────────
 # Include .d files produced by -MMD -MP. On a clean build these don't exist

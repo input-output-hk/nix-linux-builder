@@ -71,11 +71,22 @@ let
   # nix-linux-shell wrapper: substitutes kernel/initrd/builder paths
   # so users can interactively debug Linux builds without knowing
   # the store paths of guest components.
-  nixLinuxShell = pkgs.writeShellScriptBin "nix-linux-shell"
-    (builtins.replaceStrings
+  # Uses writeShellApplication to declare runtime dependencies (jq)
+  # and get shellcheck validation at build time.
+  nixLinuxShellText =
+    builtins.replaceStrings
       [ "@kernel@" "@initrd@" "@builder@" ]
       [ "${guest-kernel}/Image" "${guest-initrd}/initrd" signedBin ]
-      (builtins.readFile ../scripts/nix-linux-shell));
+      (builtins.readFile ../scripts/nix-linux-shell);
+
+  nixLinuxShell = pkgs.writeShellApplication {
+    name = "nix-linux-shell";
+    runtimeInputs = [ pkgs.jq ];
+    # The script already has set -euo pipefail and a shebang;
+    # writeShellApplication prepends its own, so the originals
+    # become harmless comments/no-ops in the body.
+    text = nixLinuxShellText;
+  };
 in {
   options.services.nix-linux-builder = {
     enable = lib.mkEnableOption "nix-linux-builder external builder for Linux derivations";

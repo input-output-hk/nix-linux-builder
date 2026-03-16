@@ -65,8 +65,10 @@ static int enable_raw_mode(void)
 
     struct termios raw = orig_termios;
     cfmakeraw(&raw);
-    /* Keep ISIG so Ctrl-C still delivers SIGINT (handled by vm_lifecycle). */
-    raw.c_lflag |= ISIG;
+    /* Fully raw: all bytes including Ctrl-C (0x03) pass through to the
+     * guest's hvc0. The user exits by typing 'exit' or 'poweroff' in
+     * the guest shell. External signals (kill -TERM/-INT from another
+     * terminal) still work via GCD dispatch sources in vm_lifecycle.m. */
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) {
         LOG_ERR("tcsetattr failed");
         return -1;
@@ -134,12 +136,26 @@ static int create_bare_shell_buildroot(char *tmpdir, size_t tmpdir_size)
     return 0;
 }
 
-/* Recursively remove a directory tree (rm -rf). */
+/* Recursively remove a directory tree.
+ * Uses NSFileManager instead of system("rm -rf ...") to avoid shell
+ * injection, PATH_MAX truncation, and unnecessary subprocess overhead. */
 static void rmrf(const char *path)
 {
-    char cmd[PATH_MAX + 16];
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", path);
-    (void)system(cmd);
+    @autoreleasepool {
+        NSString *nsPath = [[NSString alloc] initWithUTF8String:path];
+        if (!nsPath) {
+            LOG_ERR("rmrf: invalid UTF-8 path");
+            return;
+        }
+        NSError *error = nil;
+        if (![[NSFileManager defaultManager] removeItemAtPath:nsPath error:&error]) {
+            /* Silently ignore "file not found" — mirrors rm -f behaviour. */
+            if ([error.domain isEqualToString:NSCocoaErrorDomain]
+                && error.code == NSFileNoSuchFileError)
+                return;
+            LOG_ERR("rmrf %s: %s", path, error.localizedDescription.UTF8String);
+        }
+    }
 }
 
 int main(int argc, char *argv[])
@@ -168,10 +184,17 @@ int main(int argc, char *argv[])
             /* If no build.json was provided, create a minimal one in a
              * temp directory so the guest init can proceed. */
             if (!opts.build_json_path) {
-                if (create_bare_shell_buildroot(bare_tmpdir, sizeof(bare_tmpdir)) != 0)
+                if (create_bare_shell_buildroot(bare_tmpdir, sizeof(bare_tmpdir)) != 0) {
+                    if (bare_tmpdir[0]) rmrf(bare_tmpdir);
                     return 1;
-                snprintf(bare_build_json, sizeof(bare_build_json),
-                         "%s/build.json", bare_tmpdir);
+                }
+                int nb = snprintf(bare_build_json, sizeof(bare_build_json),
+                                  "%s/build.json", bare_tmpdir);
+                if (nb < 0 || (size_t)nb >= sizeof(bare_build_json)) {
+                    LOG_ERR("bare shell build.json path too long");
+                    rmrf(bare_tmpdir);
+                    return 1;
+                }
                 opts.build_json_path = bare_build_json;
                 LOG_DBG("bare shell: created temp buildroot at %s", bare_tmpdir);
             }

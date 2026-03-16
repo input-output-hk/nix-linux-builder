@@ -111,6 +111,50 @@ busybox mount -t virtiofs nix-store /mnt/root/nix/store
 busybox mkdir -p /mnt/root/build-info
 busybox mount -t virtiofs buildroot /mnt/root/build-info
 
+# ── Early shell/debug detection ──────────────────────────────────────────
+# Detect mode from kernel command line BEFORE expensive ext4 setup.
+# The host appends "nlb.shell" and/or "nlb.debug" to the cmdline when
+# --shell/--debug are passed. Namespaced with "nlb." to avoid conflicts
+# with real kernel parameters (e.g., the kernel's "debug" early_param).
+# We check /mnt/root/proc because /proc is in the initramfs.
+SHELL_MODE=false
+DEBUG_MODE=false
+if busybox grep -q 'nlb\.shell' /mnt/root/proc/cmdline 2>/dev/null; then
+    SHELL_MODE=true
+fi
+if busybox grep -q 'nlb\.debug' /mnt/root/proc/cmdline 2>/dev/null; then
+    DEBUG_MODE=true
+fi
+
+BUILD_JSON="/mnt/root/build-info/build.json"
+
+# ── Bare shell mode (early exit) ─────────────────────────────────────────
+# --shell with no real derivation: just mount /nix/store and drop to sh.
+# We detect this by checking if the builder is /bin/sh (the synthetic
+# build.json created by the host for bare shell mode).
+# This exits before the ext4 loop mount — bare shell doesn't need /build.
+if $SHELL_MODE && ! $DEBUG_MODE; then
+    bare_builder="$(jq -r .builder "$BUILD_JSON" 2>/dev/null)" || true
+    if [ "$bare_builder" = "/bin/sh" ]; then
+        busybox cat > /mnt/root/init <<'SHELLEOF'
+#!/bin/busybox env -i /bin/sh
+cleanup() { exec /bin/busybox poweroff -f; }
+trap cleanup EXIT
+/bin/busybox rm /init
+/bin/busybox ln -sf /proc/self/fd /dev/fd
+echo ""
+echo "nix-linux-builder: interactive shell (/nix/store mounted)"
+echo "Type 'exit' to shut down VM."
+echo ""
+exec /bin/busybox sh
+SHELLEOF
+        busybox chmod 500 /mnt/root/init
+        echo 0 > /mnt/root/proc/sys/kernel/printk
+        exec busybox switch_root /mnt/root /init
+    fi
+fi
+
+# ── /build scratch space (ext4 on VirtioFS) ──────────────────────────────
 # /build is the scratch space (TMPDIR) for the nix builder.
 # We use a loop-mounted ext4 image on VirtioFS instead of direct VirtioFS
 # because Apple's VirtioFS doesn't honor DAC_OVERRIDE: guest root is not
@@ -166,48 +210,11 @@ busybox sed -i "s/NIXBLD_GID/$BUILD_GID/g" /mnt/root/etc/group
 busybox chown "$BUILD_UID:$BUILD_GID" /mnt/root/build
 
 # ── Parse build.json ──────────────────────────────────────────────────────
+# BUILD_JSON was set earlier (before ext4 setup) for the bare shell check.
 
-BUILD_JSON="/mnt/root/build-info/build.json"
 if [ ! -r "$BUILD_JSON" ]; then
     echo "build.json not found or not readable at $BUILD_JSON" >&2
     exit 1
-fi
-
-# Detect shell/debug mode from kernel command line.
-# The host appends "shell" and/or "debug" to the cmdline when --shell/--debug
-# are passed. We check /mnt/root/proc because /proc is in the initramfs.
-SHELL_MODE=false
-DEBUG_MODE=false
-if busybox grep -q ' shell' /mnt/root/proc/cmdline 2>/dev/null; then
-    SHELL_MODE=true
-fi
-if busybox grep -q ' debug' /mnt/root/proc/cmdline 2>/dev/null; then
-    DEBUG_MODE=true
-fi
-
-# ── Bare shell mode ──────────────────────────────────────────────────────
-# --shell with no real derivation: just mount /nix/store and drop to sh.
-# We detect this by checking if the builder is /bin/sh (the synthetic
-# build.json created by the host for bare shell mode).
-if $SHELL_MODE && ! $DEBUG_MODE; then
-    bare_builder="$(jq -r .builder "$BUILD_JSON" 2>/dev/null)" || true
-    if [ "$bare_builder" = "/bin/sh" ]; then
-        busybox cat > /mnt/root/init <<'SHELLEOF'
-#!/bin/busybox env -i /bin/sh
-cleanup() { exec /bin/busybox poweroff -f; }
-trap cleanup EXIT
-/bin/busybox rm /init
-/bin/busybox ln -sf /proc/self/fd /dev/fd
-echo ""
-echo "nix-linux-builder: interactive shell (/nix/store mounted)"
-echo "Type 'exit' to shut down VM."
-echo ""
-exec /bin/busybox sh
-SHELLEOF
-        busybox chmod 500 /mnt/root/init
-        echo 0 > /mnt/root/proc/sys/kernel/printk
-        exec busybox switch_root /mnt/root /init
-    fi
 fi
 
 # Mount proc in initramfs context (for binfmt_misc below)
@@ -301,11 +308,11 @@ trap cleanup EXIT
 
 cd /build
 
-# Source the environment variables extracted from build.json
+# Source the environment variables extracted from build.json.
+# Keep /execenv around so the debug shell can re-source it after failure.
 set -a
 . /execenv
 set +a
-/bin/busybox rm /execenv
 
 echo "nix-linux-builder: debug mode — running build..."
 
@@ -320,13 +327,14 @@ echo \$rc > /build-info/.exitcode
 if [ \$rc -eq 0 ]; then
     echo ""
     echo "Build SUCCEEDED (exit code 0)."
+    /bin/busybox rm -f /execenv
 else
     echo ""
     echo "Build FAILED (exit code \$rc). Dropping to debug shell."
     echo "Build directory: /build"
+    echo "  Re-source environment: . /execenv"
     echo "Type 'exit' to shut down VM."
     echo ""
-    # Re-source env (builder may have modified it, but we want the original)
     exec /bin/busybox setuidgid nixbld $builder
 fi
 INITEOF
