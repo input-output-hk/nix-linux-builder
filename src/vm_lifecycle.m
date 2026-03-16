@@ -33,15 +33,17 @@ static dispatch_source_t create_signal_source(int sig,
                                                dispatch_semaphore_t sem,
                                                BOOL *signaled_flag)
 {
-    /* Ignore the signal via the default handler so the process doesn't
-     * terminate — GCD will deliver it to our source instead. */
-    signal(sig, SIG_IGN);
     dispatch_source_t src = dispatch_source_create(
         DISPATCH_SOURCE_TYPE_SIGNAL, (uintptr_t)sig, 0, queue);
     if (!src) {
         LOG_ERR("dispatch_source_create failed for signal %d", sig);
         return NULL;
     }
+    /* Ignore the signal via the default handler so the process doesn't
+     * terminate — GCD will deliver it to our source instead.
+     * Done AFTER dispatch_source_create succeeds so that on failure the
+     * signal retains its default (terminate) behaviour. */
+    signal(sig, SIG_IGN);
     dispatch_source_set_event_handler(src, ^{
         LOG_WARN("received signal %d, stopping VM...", sig);
         /* Set flag before signaling semaphore so the main thread sees it

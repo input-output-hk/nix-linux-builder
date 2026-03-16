@@ -67,7 +67,7 @@ The flake provides a `darwinModules.default` that handles everything:
           # services.nix-linux-builder.systems = [ "aarch64-linux" "x86_64-linux" ];
           # services.nix-linux-builder.memorySize = null;  # 8 GiB default
           # services.nix-linux-builder.cpuCount = null;    # host CPU count
-          # services.nix-linux-builder.timeout = 0;        # unlimited
+          # services.nix-linux-builder.timeout = 0;        # no timeout
           # services.nix-linux-builder.network = false;
           # services.nix-linux-builder.ramdiskTmp = false;
           # services.nix-linux-builder.verbose = false;
@@ -210,7 +210,7 @@ Required:
 Optional:
   --memory-size <bytes>   VM memory in bytes (default: 8 GiB)
   --cpu-count <n>         Number of vCPUs (default: host CPU count)
-  --timeout <seconds>     Build timeout, 0 = unlimited (default: 0)
+  --timeout <seconds>     Build timeout, 0 = none (default: 0)
   --network               Enable NAT networking in guest
   --ramdisk-tmp           Use tmpfs for /tmp (faster, limited by RAM)
   --shell                 Interactive shell mode (build.json optional)

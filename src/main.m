@@ -57,7 +57,7 @@ static int enable_raw_mode(void)
         return 0; /* not a terminal — nothing to configure */
 
     if (tcgetattr(STDIN_FILENO, &orig_termios) != 0) {
-        LOG_ERR("tcgetattr failed");
+        LOG_ERR("tcgetattr failed: %s", strerror(errno));
         return -1;
     }
     termios_saved = true;
@@ -70,7 +70,7 @@ static int enable_raw_mode(void)
      * the guest shell. External signals (kill -TERM/-INT from another
      * terminal) still work via GCD dispatch sources in vm_lifecycle.m. */
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0) {
-        LOG_ERR("tcsetattr failed");
+        LOG_ERR("tcsetattr failed: %s", strerror(errno));
         return -1;
     }
     return 0;
