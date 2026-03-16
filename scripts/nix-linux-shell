@@ -107,10 +107,18 @@ mkdir -p "$TMPDIR_ROOT/build"
 # Get the structured derivation JSON (nix 2.34+ format).
 # Format: { "derivations": { "<short-hash>.drv": { ... } }, "version": 4 }
 # Keys in .derivations are basenames (no /nix/store/ prefix).
-DRV_JSON="$(nix derivation show "$DRV_PATH" 2>/dev/null)"
+DRV_JSON="$(nix derivation show "$DRV_PATH" 2>&1)" || {
+    echo "error: failed to read derivation: $DRV_JSON" >&2
+    exit 1
+}
 
-# Extract the derivation key (basename of the .drv path).
+# Extract the derivation key (basename of the .drv path) and validate
+# that the JSON actually contains this derivation.
 DRV_KEY="$(basename "$DRV_PATH")"
+if ! echo "$DRV_JSON" | jq -e --arg key "$DRV_KEY" '.derivations[$key]' >/dev/null 2>&1; then
+    echo "error: derivation '$DRV_KEY' not found in 'nix derivation show' output" >&2
+    exit 1
+fi
 
 # Resolve all input derivation outputs to their full store paths.
 # nix 2.34 format:

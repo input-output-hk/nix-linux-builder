@@ -463,6 +463,46 @@ static void test_shell_default_false(void)
     TEST_ASSERT_FALSE(opts.debug);
 }
 
+/* ── Flag orthogonality ──────────────────────────────────────────────── */
+
+static void test_shell_with_network(void)
+{
+    /* --shell and --network are orthogonal — both should be set */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--shell", "--network", "build.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(8, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(opts.shell);
+    TEST_ASSERT_TRUE(opts.network);
+    TEST_ASSERT_EQUAL_STRING("build.json", opts.build_json_path);
+}
+
+/* ── Last-wins behavior for value flags ──────────────────────────────── */
+
+static void test_last_wins_kernel(void)
+{
+    /* Duplicate --kernel: last value wins */
+    char *argv[] = { "nlb", "--kernel", "/k1", "--kernel", "/k2",
+                     "--initrd", "/i", "b.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(8, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("/k2", opts.kernel_path);
+}
+
+static void test_last_wins_memory_size(void)
+{
+    /* Duplicate --memory-size: last value wins */
+    char *argv[] = { "nlb", "--kernel", "/k", "--initrd", "/i",
+                     "--memory-size", "1000", "--memory-size", "2000",
+                     "b.json" };
+    nlb_cli_opts opts;
+    int rc = nlb_cli_parse(10, argv, &opts);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_UINT64(2000, opts.memory_size);
+}
+
 /* ── Missing option value ────────────────────────────────────────────── */
 
 static void test_kernel_missing_value(void)
@@ -571,6 +611,13 @@ int main(void)
     RUN_TEST(test_shell_debug_without_build_json);
     RUN_TEST(test_shell_timeout_ignored);
     RUN_TEST(test_shell_default_false);
+
+    /* Flag orthogonality */
+    RUN_TEST(test_shell_with_network);
+
+    /* Last-wins behavior */
+    RUN_TEST(test_last_wins_kernel);
+    RUN_TEST(test_last_wins_memory_size);
 
     /* Missing option value */
     RUN_TEST(test_kernel_missing_value);
