@@ -36,6 +36,24 @@ let
     then self.prebuiltGuest.guest-initrd
     else self.packages.aarch64-linux.guest-initrd;
 
+  # Signed binary location — the nix store strips code-signing entitlements
+  # from Mach-O binaries during registration, so we copy the binary out and
+  # re-sign it with the com.apple.security.virtualization entitlement via an
+  # activation script.
+  signedBinDir = "/usr/local/lib/nix-linux-builder";
+  signedBin = "${signedBinDir}/nix-linux-builder";
+
+  entitlementsPlist = pkgs.writeText "nix-linux-builder-entitlements.plist" ''
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>com.apple.security.virtualization</key>
+      <true/>
+    </dict>
+    </plist>
+  '';
+
   # Build the args list from module options.
   builderArgs = lib.concatLists [
     [ "--kernel" "${guest-kernel}/Image" ]
@@ -109,12 +127,24 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
+    # Copy builder binary out of the nix store and re-sign with the
+    # com.apple.security.virtualization entitlement.  The nix store
+    # strips entitlements during registration, so Virtualization.framework
+    # refuses to start VMs from store paths.
+    system.activationScripts.preActivation.text = ''
+      mkdir -p ${signedBinDir}
+      if ! cmp -s ${builder}/bin/nix-linux-builder ${signedBin} 2>/dev/null; then
+        cp -f ${builder}/bin/nix-linux-builder ${signedBin}
+        /usr/bin/codesign --sign - --entitlements ${entitlementsPlist} --force ${signedBin}
+      fi
+    '';
+
     nix.settings = {
       extra-experimental-features = [ "external-builders" ];
       external-builders = builtins.toJSON [
         {
           systems = cfg.systems;
-          program = "${builder}/bin/nix-linux-builder";
+          program = signedBin;
           args = lib.flatten builderArgs;
         }
       ];
