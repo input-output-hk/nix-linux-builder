@@ -128,8 +128,14 @@ in {
 
     network = lib.mkOption {
       type = lib.types.bool;
-      default = false;
-      description = "Enable NAT networking in the guest VM.";
+      default = true;
+      description = ''
+        Enable NAT networking in the guest VM.
+        Required for fixed-output derivations (fetchgit, fetchurl, etc.)
+        that need network access during build. The nix external-builder
+        protocol does not indicate whether a derivation needs network,
+        so networking is enabled unconditionally.
+      '';
     };
 
     ramdiskTmp = lib.mkOption {
