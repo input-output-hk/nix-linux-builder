@@ -47,13 +47,13 @@
       # These are fetched on macOS via darwinPkgs.fetchurl — no aarch64-linux
       # builder needed. Solves the chicken-and-egg bootstrap problem.
       # Update hashes after each release (see SHA256SUMS.txt in the release).
-      version = "0.1.0";
+      version = "0.3.0";
       releaseUrl = "https://github.com/input-output-hk/nix-linux-builder/releases/download/v${version}";
       prebuilt = {
         # Set to null before first release; the darwin module falls back
         # to building from source when hash is null.
-        guest-kernel.hash = "sha256-o5r4ZXilWUfoZscazEOCs2wtpLceWU4teaIRCQo3Ek4=";
-        guest-initrd.hash = "sha256-ZWrXThlCskT7HA51ublMRv35GYMPku1IBRJg/ul2euk=";
+        guest-kernel.hash = "sha256-Xm4bks5W9AEqYkP/tX5vqr5ESAkcxfxndf5C0TjgOHY=";
+        guest-initrd.hash = "sha256-hX+t9C1ySPdRKzXAjj1imJq5CE1uTVSvSshFr6mYF3c=";
       };
 
       # Helper: fetch a prebuilt binary from a GitHub release and wrap it
@@ -79,7 +79,7 @@
 
         nix-linux-builder = darwinPkgs.stdenv.mkDerivation {
           pname = "nix-linux-builder";
-          version = "0.1.0";
+          version = "0.3.0";
           src = ./.;
 
           nativeBuildInputs = [
