@@ -356,6 +356,18 @@ trap cleanup EXIT
 cd /build
 
 set +x
+
+# Disable kernel TTY OPOST/ONLCR translation on hvc0.
+# Linux's hvc0 is a TTY whose default termios applies OPOST+ONLCR, which
+# converts each '\n' written to the console into '\r\n' on the wire.  nix's
+# BuildLog (≤ 2.34) treats '\r' as carriage-return and resets the line
+# buffer, so when nix reads '\r\n' it emits an empty string for that line —
+# every line of build output appears blank in 'nix log' / Hydra logs while
+# /nix/var/log/nix/drvs/*.bz2 still has the raw bytes.  Disabling OPOST
+# makes the kernel write '\n' verbatim, so BuildLog handles the stream
+# correctly.  See: https://github.com/NixOS/nix/blob/2.34.6/src/libstore/build/build-log.cc
+/bin/busybox stty -opost </dev/console 2>/dev/null || true
+
 # Signal nix that build output starts now.
 # \2 (STX) on a line by itself tells the nix daemon to start
 # capturing everything after this as build log output.
