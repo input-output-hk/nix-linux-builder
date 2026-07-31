@@ -2,6 +2,51 @@
 
 All notable changes to nix-linux-builder are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **The code-signing entitlement now survives into the nix store.** The host
+  binary was signed in `installPhase`, but stdenv's fixup re-signs Mach-O
+  binaries afterwards (strip invalidates the signature) and that re-signature
+  carries no entitlements. The store copy therefore arrived as
+  `flags=0x20002(adhoc,linker-signed) hashes=24+0` — no
+  `com.apple.security.virtualization`. Signing moved to `postFixup`, which runs
+  after every fixup hook, so the store copy is now
+  `flags=0x2(adhoc) hashes=24+7` with the entitlement present and
+  `codesign --verify` clean.
+- **The entitlement is signed with `rcodesign`, not sigtool.** sigtool writes
+  only the XML entitlements blob (special slot 5, `hashes=24+5`); Apple's
+  `codesign` also writes a DER-encoded copy (slot 7, `hashes=24+7`), and AMFI on
+  macOS 13+ reads the DER form. An entitlement that `codesign -d --entitlements`
+  prints can therefore still be ignored when Virtualization.framework checks it.
+  `rcodesign` emits both, so the store signature is now equivalent to what the
+  old activation-time `/usr/bin/codesign` produced, while remaining a pinned
+  nixpkgs binary (Apple's tool is not, and varies with the host's macOS).
+
+### Changed
+- **The darwin module runs the builder directly from the store path.** With the
+  entitlement preserved there is no reason to copy the binary to
+  `/usr/local/lib/nix-linux-builder` and re-sign it in an activation script, so
+  that copy and its generated `entitlements.plist` are gone;
+  `nix.settings.external-builders` and the `nix-linux-shell` wrapper now point
+  at `${builder}/bin/nix-linux-builder`.
+
+  Downstreams should also drop any activation script that re-signs the binary
+  *in place* inside `/nix/store`. That mutates the path's contents so it no
+  longer matches its recorded NAR hash: the path fails `nix-store --verify-path`
+  and can never be copied to another machine. Nix short-circuits the "build"
+  (the path is registered valid), exports the mutated bytes, and the receiving
+  host rejects them with `hash mismatch importing path` — which breaks
+  centrally-built deploys.
+
+### Notes
+- The derivation is byte-reproducible across macOS versions. Neither signer is
+  Apple's: `make build` uses nixpkgs' pinned `darwin.sigtool` and the final
+  signature comes from pinned `rcodesign`, so v0.3.0 produces the same NAR hash
+  on macOS 15 and macOS 26 (verified with `nix build --rebuild`). Reports of
+  cross-version non-determinism here were misdiagnosed — the differing hash came
+  from a downstream activation script re-signing the store path in place.
+
 ## [v0.2.0] — 2026-03-16
 
 ### Added

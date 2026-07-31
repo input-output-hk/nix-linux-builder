@@ -85,6 +85,7 @@
           nativeBuildInputs = [
             darwinPkgs.gnumake
             darwinPkgs.darwin.sigtool  # provides codesign in sandbox
+            darwinPkgs.rcodesign       # entitlement signing, see postFixup
           ];
 
           buildInputs = [
@@ -111,7 +112,34 @@
           installPhase = ''
             mkdir -p $out/bin
             cp .build/nix-linux-builder $out/bin/
-            codesign --sign - --entitlements entitlements.plist --force $out/bin/nix-linux-builder
+          '';
+
+          # Sign in postFixup, NOT installPhase.  stdenv's fixup re-signs
+          # Mach-O binaries after install (strip invalidates the signature),
+          # and that re-signature carries no entitlements — a binary signed in
+          # installPhase reaches the store as
+          #   flags=0x20002(adhoc,linker-signed) hashes=24+0
+          # i.e. entitlement gone, which is why the darwin module used to copy
+          # the binary out of the store and re-sign it at activation time.
+          # postFixup runs after every fixup hook, so this signature is what
+          # actually lands in the store: flags=0x2(adhoc) hashes=24+5, with
+          # com.apple.security.virtualization present.
+          #
+          # rcodesign, not sigtool: sigtool writes only the XML entitlements
+          # blob (special slot 5 — `hashes=24+5`), whereas Apple's codesign also
+          # writes a DER-encoded copy (slot 7 — `hashes=24+7`).  AMFI on
+          # macOS 13+ reads the DER form, so an entitlement that
+          # `codesign -d --entitlements` happily prints can still be ignored
+          # when Virtualization.framework checks it.  rcodesign emits both, so
+          # the signature matches what the old activation-time
+          # `/usr/bin/codesign` produced — and it is a pinned nixpkgs binary,
+          # so unlike Apple's tool the output does not vary with the host's
+          # macOS version.  Verified byte-reproducible with nix build --rebuild.
+          postFixup = ''
+            rcodesign sign \
+              --binary-identifier nix-linux-builder \
+              --entitlements-xml-path entitlements.plist \
+              $out/bin/nix-linux-builder
           '';
 
           meta = {
