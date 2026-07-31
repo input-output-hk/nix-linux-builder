@@ -85,6 +85,7 @@
           nativeBuildInputs = [
             darwinPkgs.gnumake
             darwinPkgs.darwin.sigtool  # provides codesign in sandbox
+            darwinPkgs.rcodesign       # entitlement signing, see postFixup
           ];
 
           buildInputs = [
@@ -124,12 +125,21 @@
           # actually lands in the store: flags=0x2(adhoc) hashes=24+5, with
           # com.apple.security.virtualization present.
           #
-          # `codesign` here is nixpkgs' darwin.sigtool (nativeBuildInputs
-          # above), not Apple's — it is pinned, so the output is byte-identical
-          # regardless of the host's macOS version.  Verified: this derivation
-          # produces NAR hash 1y6q4c65… on both macOS 15 and macOS 26.
+          # rcodesign, not sigtool: sigtool writes only the XML entitlements
+          # blob (special slot 5 — `hashes=24+5`), whereas Apple's codesign also
+          # writes a DER-encoded copy (slot 7 — `hashes=24+7`).  AMFI on
+          # macOS 13+ reads the DER form, so an entitlement that
+          # `codesign -d --entitlements` happily prints can still be ignored
+          # when Virtualization.framework checks it.  rcodesign emits both, so
+          # the signature matches what the old activation-time
+          # `/usr/bin/codesign` produced — and it is a pinned nixpkgs binary,
+          # so unlike Apple's tool the output does not vary with the host's
+          # macOS version.  Verified byte-reproducible with nix build --rebuild.
           postFixup = ''
-            codesign --sign - --entitlements entitlements.plist --force $out/bin/nix-linux-builder
+            rcodesign sign \
+              --binary-identifier nix-linux-builder \
+              --entitlements-xml-path entitlements.plist \
+              $out/bin/nix-linux-builder
           '';
 
           meta = {

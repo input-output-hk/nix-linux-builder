@@ -12,8 +12,16 @@ All notable changes to nix-linux-builder are documented in this file.
   `flags=0x20002(adhoc,linker-signed) hashes=24+0` — no
   `com.apple.security.virtualization`. Signing moved to `postFixup`, which runs
   after every fixup hook, so the store copy is now
-  `flags=0x2(adhoc) hashes=24+5` with the entitlement present and
+  `flags=0x2(adhoc) hashes=24+7` with the entitlement present and
   `codesign --verify` clean.
+- **The entitlement is signed with `rcodesign`, not sigtool.** sigtool writes
+  only the XML entitlements blob (special slot 5, `hashes=24+5`); Apple's
+  `codesign` also writes a DER-encoded copy (slot 7, `hashes=24+7`), and AMFI on
+  macOS 13+ reads the DER form. An entitlement that `codesign -d --entitlements`
+  prints can therefore still be ignored when Virtualization.framework checks it.
+  `rcodesign` emits both, so the store signature is now equivalent to what the
+  old activation-time `/usr/bin/codesign` produced, while remaining a pinned
+  nixpkgs binary (Apple's tool is not, and varies with the host's macOS).
 
 ### Changed
 - **The darwin module runs the builder directly from the store path.** With the
@@ -32,9 +40,12 @@ All notable changes to nix-linux-builder are documented in this file.
   centrally-built deploys.
 
 ### Notes
-- The derivation is byte-reproducible across macOS versions: `codesign` in the
-  build is nixpkgs' pinned `darwin.sigtool`, not Apple's, and the same NAR hash
-  is produced on macOS 15 and macOS 26 (verified with `nix build --rebuild`).
+- The derivation is byte-reproducible across macOS versions. Neither signer is
+  Apple's: `make build` uses nixpkgs' pinned `darwin.sigtool` and the final
+  signature comes from pinned `rcodesign`, so v0.3.0 produces the same NAR hash
+  on macOS 15 and macOS 26 (verified with `nix build --rebuild`). Reports of
+  cross-version non-determinism here were misdiagnosed — the differing hash came
+  from a downstream activation script re-signing the store path in place.
 
 ## [v0.2.0] — 2026-03-16
 
