@@ -2,6 +2,40 @@
 
 All notable changes to nix-linux-builder are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **The code-signing entitlement now survives into the nix store.** The host
+  binary was signed in `installPhase`, but stdenv's fixup re-signs Mach-O
+  binaries afterwards (strip invalidates the signature) and that re-signature
+  carries no entitlements. The store copy therefore arrived as
+  `flags=0x20002(adhoc,linker-signed) hashes=24+0` — no
+  `com.apple.security.virtualization`. Signing moved to `postFixup`, which runs
+  after every fixup hook, so the store copy is now
+  `flags=0x2(adhoc) hashes=24+5` with the entitlement present and
+  `codesign --verify` clean.
+
+### Changed
+- **The darwin module runs the builder directly from the store path.** With the
+  entitlement preserved there is no reason to copy the binary to
+  `/usr/local/lib/nix-linux-builder` and re-sign it in an activation script, so
+  that copy and its generated `entitlements.plist` are gone;
+  `nix.settings.external-builders` and the `nix-linux-shell` wrapper now point
+  at `${builder}/bin/nix-linux-builder`.
+
+  Downstreams should also drop any activation script that re-signs the binary
+  *in place* inside `/nix/store`. That mutates the path's contents so it no
+  longer matches its recorded NAR hash: the path fails `nix-store --verify-path`
+  and can never be copied to another machine. Nix short-circuits the "build"
+  (the path is registered valid), exports the mutated bytes, and the receiving
+  host rejects them with `hash mismatch importing path` — which breaks
+  centrally-built deploys.
+
+### Notes
+- The derivation is byte-reproducible across macOS versions: `codesign` in the
+  build is nixpkgs' pinned `darwin.sigtool`, not Apple's, and the same NAR hash
+  is produced on macOS 15 and macOS 26 (verified with `nix build --rebuild`).
+
 ## [v0.2.0] — 2026-03-16
 
 ### Added

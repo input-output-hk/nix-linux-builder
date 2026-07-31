@@ -111,6 +111,24 @@
           installPhase = ''
             mkdir -p $out/bin
             cp .build/nix-linux-builder $out/bin/
+          '';
+
+          # Sign in postFixup, NOT installPhase.  stdenv's fixup re-signs
+          # Mach-O binaries after install (strip invalidates the signature),
+          # and that re-signature carries no entitlements — a binary signed in
+          # installPhase reaches the store as
+          #   flags=0x20002(adhoc,linker-signed) hashes=24+0
+          # i.e. entitlement gone, which is why the darwin module used to copy
+          # the binary out of the store and re-sign it at activation time.
+          # postFixup runs after every fixup hook, so this signature is what
+          # actually lands in the store: flags=0x2(adhoc) hashes=24+5, with
+          # com.apple.security.virtualization present.
+          #
+          # `codesign` here is nixpkgs' darwin.sigtool (nativeBuildInputs
+          # above), not Apple's — it is pinned, so the output is byte-identical
+          # regardless of the host's macOS version.  Verified: this derivation
+          # produces NAR hash 1y6q4c65… on both macOS 15 and macOS 26.
+          postFixup = ''
             codesign --sign - --entitlements entitlements.plist --force $out/bin/nix-linux-builder
           '';
 

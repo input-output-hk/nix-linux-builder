@@ -36,23 +36,16 @@ let
     then self.prebuiltGuest.guest-initrd
     else self.packages.aarch64-linux.guest-initrd;
 
-  # Signed binary location — the nix store strips code-signing entitlements
-  # from Mach-O binaries during registration, so we copy the binary out and
-  # re-sign it with the com.apple.security.virtualization entitlement via an
-  # activation script.
-  signedBinDir = "/usr/local/lib/nix-linux-builder";
-  signedBin = "${signedBinDir}/nix-linux-builder";
-
-  entitlementsPlist = pkgs.writeText "nix-linux-builder-entitlements.plist" ''
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-      <key>com.apple.security.virtualization</key>
-      <true/>
-    </dict>
-    </plist>
-  '';
+  # The store binary is used directly: it is signed in the derivation's
+  # postFixup with the com.apple.security.virtualization entitlement, which
+  # survives stdenv's fixup re-signing (see flake.nix).  Earlier versions
+  # copied it to /usr/local/lib and re-signed it at activation, because a
+  # signature applied in installPhase was replaced by fixup and the entitlement
+  # was lost.  Signing after fixup removes the need for that copy — and for
+  # any activation script that re-signs a store path in place, which mutates
+  # the path's content and permanently breaks `nix-store --verify` and any
+  # attempt to copy it to another machine.
+  builderBin = "${builder}/bin/nix-linux-builder";
 
   # Build the args list from module options.
   builderArgs = lib.concatLists [
@@ -76,7 +69,7 @@ let
   nixLinuxShellText =
     builtins.replaceStrings
       [ "@kernel@" "@initrd@" "@builder@" ]
-      [ "${guest-kernel}/Image" "${guest-initrd}/initrd" signedBin ]
+      [ "${guest-kernel}/Image" "${guest-initrd}/initrd" builderBin ]
       (builtins.readFile ../scripts/nix-linux-shell);
 
   nixLinuxShell = pkgs.writeShellApplication {
@@ -152,17 +145,9 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    # Copy builder binary out of the nix store and re-sign with the
-    # com.apple.security.virtualization entitlement.  The nix store
-    # strips entitlements during registration, so Virtualization.framework
-    # refuses to start VMs from store paths.
-    system.activationScripts.preActivation.text = ''
-      mkdir -p ${signedBinDir}
-      if ! cmp -s ${builder}/bin/nix-linux-builder ${signedBin} 2>/dev/null; then
-        cp -f ${builder}/bin/nix-linux-builder ${signedBin}
-        /usr/bin/codesign --sign - --entitlements ${entitlementsPlist} --force ${signedBin}
-      fi
-    '';
+    # No activation script: the store binary already carries the
+    # com.apple.security.virtualization entitlement (signed in postFixup), so
+    # Virtualization.framework starts VMs straight from the store path.
 
     # Install nix-linux-shell wrapper for interactive debugging.
     environment.systemPackages = [ nixLinuxShell ];
@@ -172,7 +157,7 @@ in {
       external-builders = builtins.toJSON [
         {
           systems = cfg.systems;
-          program = signedBin;
+          program = builderBin;
           args = lib.flatten builderArgs;
         }
       ];
