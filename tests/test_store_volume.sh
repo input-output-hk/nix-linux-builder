@@ -16,13 +16,26 @@ insensitive_device=
 sensitive_device=
 
 cleanup() {
+    status=$?
+    trap - EXIT HUP INT TERM
     if [ -n "$sensitive_device" ]; then
-        hdiutil detach -quiet "$sensitive_device" || true
+        if ! hdiutil detach -quiet "$sensitive_device"; then
+            echo "could not detach owned test image $sensitive_device; preserving $test_root" >&2
+            status=1
+        fi
     fi
     if [ -n "$insensitive_device" ]; then
-        hdiutil detach -quiet "$insensitive_device" || true
+        if ! hdiutil detach -quiet "$insensitive_device"; then
+            echo "could not detach owned test image $insensitive_device; preserving $test_root" >&2
+            status=1
+        fi
     fi
-    rm -rf "$test_root"
+    if [ "$status" -eq 0 ]; then
+        rm -rf "$test_root"
+    else
+        echo "test artifacts were kept for manual cleanup: $test_root" >&2
+    fi
+    exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 129' HUP

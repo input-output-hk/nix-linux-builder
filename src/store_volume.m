@@ -1,6 +1,6 @@
 /*
  * nix-linux-builder — store filesystem capabilities
- * Copyright 2025 Moritz Angermann <moritz@iohk.io>, Input Output Group
+ * Copyright 2025 Moritz Angermann <moritz.angermann@iohk.io>, Input Output Group
  * Apache License 2.0
  */
 
