@@ -15,6 +15,7 @@
  */
 
 #import "vm_config.h"
+#import "store_volume.h"
 #include "log.h"
 
 #import <Foundation/Foundation.h>
@@ -70,6 +71,15 @@ VZVirtualMachineConfiguration *nlb_create_vm_config(
 {
     @autoreleasepool {
         NSError *error = nil;
+        NSString *storeDir = [NSString stringWithUTF8String:
+            spec->real_store_dir ? spec->real_store_dir : "/nix/store"];
+        NSString *storeReason = nil;
+        if (!nlb_store_path_supports_case_sensitive_names(storeDir, &storeReason)) {
+            LOG_ERR("refusing to start Linux VM: %s",
+                    storeReason.UTF8String ?: "store filesystem case sensitivity is unknown");
+            return nil;
+        }
+
         VZVirtualMachineConfiguration *config =
             [[VZVirtualMachineConfiguration alloc] init];
 
@@ -130,8 +140,6 @@ VZVirtualMachineConfiguration *nlb_create_vm_config(
         /* nix-store share: maps host /nix/store into the guest.
          * The nix daemon ensures build user has write access to
          * scratch output paths, which flows through VirtioFS. */
-        NSString *storeDir = [NSString stringWithUTF8String:
-            spec->real_store_dir ? spec->real_store_dir : "/nix/store"];
         [fsDevices addObject:make_virtiofs_share(@"nix-store", storeDir)];
 
         /* buildroot share: maps topTmpDir into the guest.

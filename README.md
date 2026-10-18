@@ -180,6 +180,20 @@ The VM mounts three VirtioFS shares from the host:
 | `buildroot` | `topTmpDir` | `/build-info` | Build scratch space, build.json, .exitcode |
 | `rosetta` | (system) | `/rosetta` | Rosetta x86_64 translator (x86_64-linux only) |
 
+The host filesystem containing `realStoreDir` must support case-sensitive file
+and directory names. Linux store paths can contain names that differ only by
+case; a case-insensitive host volume can merge those paths and produce invalid
+build outputs. Before creating a VM, the builder asks Foundation whether the
+configured store volume supports case-sensitive names and refuses to start if
+the answer is false or unavailable. This also applies to `--shell`: an
+interactive guest can run commands that create build outputs, so it must not
+share an unsafe store.
+
+On macOS, use a case-sensitive APFS volume for the Nix store. `make test`
+creates temporary APFS and case-sensitive APFS disk images and verifies both
+the filesystem capability query and actual case-distinct file behavior. It
+detaches and removes only those test images when complete.
+
 ### ext4 Loop Mount for /build
 
 Apple's VirtioFS does not honor Linux `DAC_OVERRIDE` -- guest root has no special

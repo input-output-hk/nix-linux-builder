@@ -46,7 +46,7 @@ UNITY_CFLAGS := -Wall -O2 -std=c11 $(DEPFLAGS)
 
 # Source files — project code (strict warnings)
 PROJ_C_SRCS := $(SRCDIR)/cli.c $(SRCDIR)/build_json.c $(SRCDIR)/exitcode.c
-OBJ_SRCS    := $(SRCDIR)/vm_config.m $(SRCDIR)/vm_lifecycle.m $(SRCDIR)/main.m
+OBJ_SRCS    := $(SRCDIR)/store_volume.m $(SRCDIR)/vm_config.m $(SRCDIR)/vm_lifecycle.m $(SRCDIR)/main.m
 
 # Vendored code (relaxed warnings)
 VENDOR_C_SRCS := $(SRCDIR)/cjson/cJSON.c
@@ -78,7 +78,7 @@ RESET   := \033[0m
 
 # ─── Building ────────────────────────────────────────────────────────────────
 
-.PHONY: help build sign clean check test lint analyze ci \
+.PHONY: help build sign clean check test test-store-volume lint analyze ci \
        build-asan test-asan build-ubsan test-ubsan fuzz
 
 help: ## 📖 Show this help message
@@ -109,7 +109,7 @@ check: build ## ✅ Run basic sanity checks
 
 # ─── Testing ─────────────────────────────────────────────────────────────────
 
-test: $(TEST_BINARIES) ## 🧪 Run unit tests
+test: $(TEST_BINARIES) test-store-volume ## 🧪 Run unit tests
 	@printf "$(YELLOW)→$(RESET) Running unit tests...\n"
 	@fail=0; \
 	for t in $(TEST_BINARIES); do \
@@ -122,6 +122,9 @@ test: $(TEST_BINARIES) ## 🧪 Run unit tests
 		printf "$(RED)$(BOLD)✗$(RESET) Some tests failed\n"; \
 		exit 1; \
 	fi
+
+test-store-volume: $(BUILDDIR)/test_store_volume ## 🧪 Test real filesystem case-sensitivity detection
+	@sh tests/test_store_volume.sh $(BUILDDIR)/test_store_volume
 
 # ─── Static Analysis ──────────────────────────────────────────────────────────
 
@@ -254,6 +257,12 @@ $(BUILDDIR)/test_exitcode: $(TESTDIR)/test_exitcode.c $(BUILDDIR)/exitcode.o $(U
 	@mkdir -p $(dir $@)
 	@printf "$(CYAN)→$(RESET) Building test_exitcode\n"
 	$(CC) $(CFLAGS) -I$(SRCDIR) -I$(TESTDIR) -o $@ $(filter %.c %.o,$^)
+
+# Test: Foundation's case-sensitivity query and real case-distinct file creation
+$(BUILDDIR)/test_store_volume: $(TESTDIR)/test_store_volume.m $(SRCDIR)/store_volume.m $(SRCDIR)/store_volume.h
+	@mkdir -p $(dir $@)
+	@printf "$(CYAN)→$(RESET) Building test_store_volume\n"
+	$(OBJC) $(OBJCFLAGS) -I$(SRCDIR) -o $@ $(TESTDIR)/test_store_volume.m $(SRCDIR)/store_volume.m -framework Foundation
 
 # ─── Auto-generated Header Dependencies ──────────────────────────────────────
 # Include .d files produced by -MMD -MP. On a clean build these don't exist
