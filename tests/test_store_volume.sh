@@ -35,10 +35,12 @@ hdiutil create -quiet -size 64m -fs APFS -volname NLBInsensitive \
 hdiutil create -quiet -size 64m -fs "Case-sensitive APFS" -volname NLBSensitive \
     -type SPARSEBUNDLE "$sensitive_image"
 
-insensitive_device=$(hdiutil attach -nobrowse -mountpoint "$insensitive_mount" \
-    "$insensitive_image" | awk 'NR == 1 { print $1 }')
-sensitive_device=$(hdiutil attach -nobrowse -mountpoint "$sensitive_mount" \
-    "$sensitive_image" | awk 'NR == 1 { print $1 }')
+insensitive_attach=$(hdiutil attach -nobrowse -mountpoint "$insensitive_mount" \
+    "$insensitive_image")
+insensitive_device=$(printf '%s\n' "$insensitive_attach" | awk 'NR == 1 { print $1 }')
+sensitive_attach=$(hdiutil attach -nobrowse -mountpoint "$sensitive_mount" \
+    "$sensitive_image")
+sensitive_device=$(printf '%s\n' "$sensitive_attach" | awk 'NR == 1 { print $1 }')
 
 if [ -z "$insensitive_device" ] || [ -z "$sensitive_device" ]; then
     echo "could not identify attached test disk images for cleanup" >&2
